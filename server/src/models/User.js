@@ -21,7 +21,22 @@ const userSchema = new mongoose.Schema(
     },
     profile: {
       goals: [{ type: String }],
-      preferredBot: { type: String, default: "mira" }
+      preferredBot: { type: String, default: "mira" },
+      companionElement: {
+        id: {
+          type: String,
+          enum: ["fire", "water", "leaf", "lightning"]
+        },
+        name: String,
+        description: String,
+        scores: {
+          fire: { type: Number, default: 0 },
+          water: { type: Number, default: 0 },
+          leaf: { type: Number, default: 0 },
+          lightning: { type: Number, default: 0 }
+        }
+      },
+      companionSurvey: mongoose.Schema.Types.Mixed
     },
     scores: {
       confidenceAverage: { type: Number, default: 0 },
