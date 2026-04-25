@@ -12,38 +12,57 @@ function hasGemmaConfig() {
   return Boolean(process.env.GEMMA_API_KEY && process.env.GEMMA_API_URL);
 }
 
+function extractJson(text) {
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : text;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
 async function callGemma(prompt) {
   if (!hasGemmaConfig()) {
     return null;
   }
 
-  const response = await fetch(`${process.env.GEMMA_API_URL}?key=${process.env.GEMMA_API_KEY}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }]
+  try {
+    const response = await fetch(`${process.env.GEMMA_API_URL}?key=${process.env.GEMMA_API_KEY}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: `${prompt}\n\nRespond with ONLY a single JSON object. No prose, no markdown fences, no commentary.` }]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.8
         }
-      ],
-      generationConfig: {
-        temperature: 0.8,
-        responseMimeType: "application/json"
-      }
-    })
-  });
+      })
+    });
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`Gemma request failed: ${message}`);
+    if (!response.ok) {
+      const message = await response.text();
+      console.error(`Gemma request failed (${response.status}):`, message);
+      return null;
+    }
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    return extractJson(text);
+  } catch (error) {
+    console.error("Gemma call errored:", error);
+    return null;
   }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  return text ? JSON.parse(text) : null;
 }
 
 function fallbackConversation(userMessage, botId) {
