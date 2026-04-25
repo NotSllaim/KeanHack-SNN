@@ -27,6 +27,8 @@ npm run install:all
 
 ```bash
 npm run dev
+# or
+npm start
 ```
 
 The client runs on `http://localhost:5173` and the API runs on `http://localhost:5000`.
