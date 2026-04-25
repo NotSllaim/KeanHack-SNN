@@ -1,4 +1,7 @@
-export const passages = [
+import mongoose from "mongoose";
+
+// Fallback passages in case MongoDB is unavailable
+const fallbackPassages = [
   {
     id: "lantern",
     title: "The Lantern Room",
@@ -16,7 +19,45 @@ export const passages = [
   }
 ];
 
-export function randomPassage() {
-  return passages[Math.floor(Math.random() * passages.length)];
+export const passages = fallbackPassages;
+
+export async function randomPassage() {
+  try {
+    const db = mongoose.connection.db;
+    if (!db) {
+      console.warn("MongoDB not connected, using fallback passages");
+      return fallbackPassages[Math.floor(Math.random() * fallbackPassages.length)];
+    }
+
+    // Get a random document from the ReadingTraining collection
+    const collection = db.collection("ReadingTraining");
+    const count = await collection.countDocuments();
+
+    if (count === 0) {
+      console.warn("No documents in ReadingTraining collection, using fallback passages");
+      return fallbackPassages[Math.floor(Math.random() * fallbackPassages.length)];
+    }
+
+    // Pick a random index
+    const randomIndex = Math.floor(Math.random() * count);
+    const documents = await collection.find().skip(randomIndex).limit(1).toArray();
+
+    if (documents.length === 0) {
+      return fallbackPassages[Math.floor(Math.random() * fallbackPassages.length)];
+    }
+
+    const doc = documents[0];
+
+    // Map MongoDB document to expected passage format
+    // Adjust the field names based on your actual MongoDB schema
+    return {
+      id: doc._id?.toString() || "random",
+      title: doc.title || "Reading Practice",
+      text: doc.text || doc.passage || doc.content || ""
+    };
+  } catch (error) {
+    console.error("Error fetching from MongoDB:", error);
+    return fallbackPassages[Math.floor(Math.random() * fallbackPassages.length)];
+  }
 }
 

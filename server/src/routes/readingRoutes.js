@@ -7,9 +7,14 @@ import { refreshUserAverages } from "../utils/scoreAverages.js";
 
 const router = express.Router();
 
-router.get("/passage", requireAuth, (req, res) => {
-  const requested = passages.find((passage) => passage.id === req.query.id);
-  res.json({ passage: requested || randomPassage() });
+router.get("/passage", requireAuth, async (req, res, next) => {
+  try {
+    const requested = passages.find((passage) => passage.id === req.query.id);
+    const passage = requested || await randomPassage();
+    res.json({ passage });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post("/analyze", requireAuth, async (req, res, next) => {
