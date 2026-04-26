@@ -95,8 +95,8 @@ export function ConversationPractice() {
       setScores(data.scores);
       setAiDebug(data.aiDebug || null);
       setXpNotice(data.xp || null);
-      console.log("[scores debug] turn scores:", data.scores, "user.scores:", data.user?.scores);
       updateUser(data.user);
+      notifyHistoryUpdated();
       if (options.speak) {
         setLivePhase("ai-speaking");
         await playAudio(data.speech);
@@ -526,6 +526,10 @@ export function ConversationPractice() {
 
 function findFillers(text) {
   return [...text.matchAll(/\b(uh|uhh|um|umm|uhm|like|you know|sort of|kind of)\b/gi)].map((match) => match[0]);
+}
+
+function notifyHistoryUpdated() {
+  window.dispatchEvent(new Event("lingo:history-updated"));
 }
 
 function formatLivePhase(phase) {

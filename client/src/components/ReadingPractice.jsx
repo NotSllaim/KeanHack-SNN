@@ -69,6 +69,7 @@ export function ReadingPractice() {
       setScores(data.scores);
       setXpNotice(data.xp || null);
       updateUser(data.user);
+      notifyHistoryUpdated();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -143,6 +144,10 @@ export function ReadingPractice() {
       <FeedbackPanel feedback={feedback} scores={scores} />
     </section>
   );
+}
+
+function notifyHistoryUpdated() {
+  window.dispatchEvent(new Event("lingo:history-updated"));
 }
 
 function Metric({ label, value }) {

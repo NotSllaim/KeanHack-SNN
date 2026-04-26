@@ -64,6 +64,7 @@ export function VerbiageTraining() {
       setScores(data.scores);
       setXpNotice(data.xp || null);
       updateUser(data.user);
+      notifyHistoryUpdated();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -138,5 +139,9 @@ export function VerbiageTraining() {
       <FeedbackPanel feedback={feedback} scores={scores} />
     </section>
   );
+}
+
+function notifyHistoryUpdated() {
+  window.dispatchEvent(new Event("lingo:history-updated"));
 }
 

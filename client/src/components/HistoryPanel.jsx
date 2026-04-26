@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, Clock3 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 
 function labelFor(type) {
@@ -15,11 +15,23 @@ export function HistoryPanel() {
   const [expandedId, setExpandedId] = useState(null);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const loadHistory = useCallback(() => {
     api("/history")
-      .then((data) => setActivities(data.activities))
+      .then((data) => {
+        setActivities(data.activities);
+        setError("");
+      })
       .catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  useEffect(() => {
+    window.addEventListener("lingo:history-updated", loadHistory);
+    return () => window.removeEventListener("lingo:history-updated", loadHistory);
+  }, [loadHistory]);
 
   return (
     <section className="rounded-md border border-stone-200 bg-white p-5 shadow-sm">
