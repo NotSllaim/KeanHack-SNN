@@ -85,7 +85,7 @@ router.post("/survey", requireAuth, async (req, res, next) => {
 
 router.post("/upgrade", requireAuth, async (req, res, next) => {
   try {
-    const { transactionSignature } = req.body;
+    const { transactionSignature, walletAddress } = req.body;
 
     if (!transactionSignature) {
       return res.status(400).json({ message: "Transaction signature is required" });
@@ -95,7 +95,9 @@ router.post("/upgrade", requireAuth, async (req, res, next) => {
       req.user._id,
       {
         upgraded: true,
-        upgradeTransactionSignature: transactionSignature
+        upgradeWalletAddress: walletAddress || req.user.upgradeWalletAddress,
+        upgradeTransactionSignature: transactionSignature,
+        upgradedAt: new Date()
       },
       { new: true }
     ).select("-passwordHash");

@@ -48,7 +48,9 @@ const userSchema = new mongoose.Schema(
       level: { type: Number, default: 1, min: 1, max: 3 }
     },
     upgraded: { type: Boolean, default: false },
+    upgradeWalletAddress: String,
     upgradeTransactionSignature: String,
+    upgradedAt: Date,
     lastLoginAt: Date
   },
   { timestamps: true }

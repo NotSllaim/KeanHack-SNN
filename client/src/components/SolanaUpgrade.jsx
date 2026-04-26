@@ -58,7 +58,7 @@ export function SolanaUpgrade({ onUpgradeComplete, isUpgraded }) {
       // Call backend to mark user as upgraded
       const data = await api("/auth/upgrade", {
         method: "POST",
-        body: JSON.stringify({ transactionSignature: hash })
+        body: JSON.stringify({ transactionSignature: hash, walletAddress })
       });
 
       // This will cause the parent to re-render and pass isUpgraded=true
