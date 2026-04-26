@@ -36,6 +36,7 @@ The client runs on `http://localhost:5173` and the API runs on `http://localhost
 ## Features
 
 - Sign up and log in with hashed passwords
+- Full-screen 8-question post-signup survey that assigns each user a Fire, Water, Leaf, or Lightning companion element
 - User profiles, scores, activity history, and feedback stored in MongoDB Atlas
 - Live conversation practice with selectable AI personalities
 - Speech bubbles, AI thought bubbles, response scoring, and ElevenLabs TTS

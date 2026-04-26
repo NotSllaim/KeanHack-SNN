@@ -32,13 +32,28 @@ export function AuthProvider({ children }) {
     setUser(data.user);
   }
 
+  async function completeSurvey(surveyAnswers, options = {}) {
+    const data = await api("/auth/survey", {
+      method: "POST",
+      body: JSON.stringify({ surveyAnswers })
+    });
+    if (!options.deferUserUpdate) {
+      setUser(data.user);
+    }
+    return data;
+  }
+
+  function finishOnboarding(updatedUser) {
+    setUser(updatedUser);
+  }
+
   function logout() {
     setToken(null);
     setUser(null);
   }
 
   const value = useMemo(
-    () => ({ user, loading, signup, login, logout }),
+    () => ({ user, loading, signup, login, completeSurvey, finishOnboarding, logout }),
     [user, loading]
   );
 

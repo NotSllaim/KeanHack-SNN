@@ -36,12 +36,34 @@ export async function api(path, options = {}) {
   return data;
 }
 
-export function playAudio({ audioBase64, contentType }) {
+export function playAudio({ audioBase64, contentType, text }) {
   if (!audioBase64 || !contentType) {
-    return;
+    return speakWithBrowserVoice(text);
   }
 
   const audio = new Audio(`data:${contentType};base64,${audioBase64}`);
-  audio.play();
+  return new Promise((resolve) => {
+    audio.onended = resolve;
+    audio.onerror = resolve;
+    audio.play().catch(resolve);
+  });
+}
+
+function speakWithBrowserVoice(text) {
+  if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+    return Promise.resolve();
+  }
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+
+  return new Promise((resolve) => {
+    utterance.onend = resolve;
+    utterance.onerror = resolve;
+    window.speechSynthesis.speak(utterance);
+  });
 }
 

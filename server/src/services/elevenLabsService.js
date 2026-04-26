@@ -2,14 +2,24 @@ function hasElevenLabsConfig() {
   return Boolean(process.env.ELEVENLABS_API_KEY);
 }
 
+let ttsFallbackReason = null;
+
 export async function textToSpeech(text) {
+  if (!text?.trim()) {
+    return browserSpeechFallback("", "No text was provided for speech");
+  }
+
+  if (ttsFallbackReason) {
+    return browserSpeechFallback(text, ttsFallbackReason);
+  }
+
   if (!hasElevenLabsConfig()) {
-    return { audioBase64: null, contentType: null, demo: true };
+    return browserSpeechFallback(text, "ElevenLabs API key is not configured");
   }
 
   const voiceId = process.env.ELEVENLABS_TTS_VOICE_ID;
   if (!voiceId) {
-    throw new Error("ELEVENLABS_TTS_VOICE_ID is required for text to speech");
+    return browserSpeechFallback(text, "ElevenLabs voice id is not configured");
   }
 
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
@@ -30,12 +40,29 @@ export async function textToSpeech(text) {
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(`ElevenLabs text to speech failed: ${message}`);
+    if (message.includes("paid_plan_required") || message.includes("payment_required")) {
+      ttsFallbackReason = message;
+      console.warn("ElevenLabs TTS requires a paid voice for the configured voice id. Browser speech fallback is now active.");
+    } else {
+      console.warn(`ElevenLabs text to speech failed; falling back to browser speech: ${message}`);
+    }
+    return browserSpeechFallback(text, message);
   }
 
   const contentType = response.headers.get("content-type") || "audio/mpeg";
   const audioBuffer = Buffer.from(await response.arrayBuffer());
-  return { audioBase64: audioBuffer.toString("base64"), contentType, demo: false };
+  return { audioBase64: audioBuffer.toString("base64"), contentType, text, provider: "elevenlabs", demo: false };
+}
+
+function browserSpeechFallback(text, reason) {
+  return {
+    audioBase64: null,
+    contentType: null,
+    text,
+    provider: "browser-speech",
+    fallbackReason: reason,
+    demo: true
+  };
 }
 
 export async function speechToText(file) {

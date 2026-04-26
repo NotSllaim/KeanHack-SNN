@@ -1,4 +1,5 @@
 import express from "express";
+import { assignCompanionElement, hasCompleteSurvey } from "../data/companionSurvey.js";
 import { requireAuth } from "../middleware/auth.js";
 import { User } from "../models/User.js";
 import { publicUser, signToken } from "../utils/tokens.js";
@@ -56,6 +57,30 @@ router.post("/login", async (req, res, next) => {
 
 router.get("/me", requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user) });
+});
+
+router.post("/survey", requireAuth, async (req, res, next) => {
+  try {
+    const { surveyAnswers } = req.body;
+
+    if (!hasCompleteSurvey(surveyAnswers)) {
+      return res.status(400).json({ message: "Please answer all companion survey questions" });
+    }
+
+    const companionElement = assignCompanionElement(surveyAnswers);
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        "profile.companionElement": companionElement,
+        "profile.companionSurvey": surveyAnswers
+      },
+      { new: true }
+    ).select("-passwordHash");
+
+    res.json({ user: publicUser(user), companionElement });
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;
