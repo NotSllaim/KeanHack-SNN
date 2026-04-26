@@ -32,6 +32,7 @@ import {
 } from "@solana/spl-token";
 
 import { api } from "../api.js";
+import { useAuth } from "../state/AuthContext.jsx";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -101,6 +102,7 @@ function UpgradeContent({ onBack }) {
   const { connection } = useConnection();
   const { publicKey, connected, connecting, disconnect, signTransaction } =
     useWallet();
+  const { updateUser } = useAuth();
   const [balance, setBalance] = useState(null);
   const [balanceError, setBalanceError] = useState(null);
 
@@ -242,7 +244,10 @@ function UpgradeContent({ onBack }) {
       if (!verifyResp?.valid) {
         throw new Error(verifyResp?.reason || "Backend reported invalid");
       }
-      console.log("[upgrade] backend verified:", verifyResp.details);
+      console.log("[upgrade] backend verified, user now:", verifyResp.user);
+      if (verifyResp.user) {
+        updateUser(verifyResp.user);
+      }
       setSignature(sig);
       setPayState("success");
     } catch (err) {
