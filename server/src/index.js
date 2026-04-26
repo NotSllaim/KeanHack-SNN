@@ -7,6 +7,7 @@ import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import conversationRoutes from "./routes/conversationRoutes.js";
 import historyRoutes from "./routes/historyRoutes.js";
+import meRoutes from "./routes/meRoutes.js";
 import readingRoutes from "./routes/readingRoutes.js";
 import verbiageRoutes from "./routes/verbiageRoutes.js";
 import voiceRoutes from "./routes/voiceRoutes.js";
@@ -27,6 +28,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/me", meRoutes);
 app.use("/api/conversation", conversationRoutes);
 app.use("/api/reading", readingRoutes);
 app.use("/api/verbiage", verbiageRoutes);

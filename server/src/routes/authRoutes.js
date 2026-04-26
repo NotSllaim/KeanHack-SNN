@@ -83,30 +83,5 @@ router.post("/survey", requireAuth, async (req, res, next) => {
   }
 });
 
-router.post("/upgrade", requireAuth, async (req, res, next) => {
-  try {
-    const { transactionSignature, walletAddress } = req.body;
-
-    if (!transactionSignature) {
-      return res.status(400).json({ message: "Transaction signature is required" });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      {
-        upgraded: true,
-        upgradeWalletAddress: walletAddress || req.user.upgradeWalletAddress,
-        upgradeTransactionSignature: transactionSignature,
-        upgradedAt: new Date()
-      },
-      { new: true }
-    ).select("-passwordHash");
-
-    res.json({ user: publicUser(user) });
-  } catch (error) {
-    next(error);
-  }
-});
-
 export default router;
 
