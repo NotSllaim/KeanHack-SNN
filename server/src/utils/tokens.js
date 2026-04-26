@@ -19,7 +19,11 @@ export function publicUser(user) {
     email: user.email,
     profile: user.profile,
     scores: user.scores,
-    progress: buildProgress(user.progress?.xp)
+    progress: buildProgress(user.progress?.xp),
+    upgraded: Boolean(user.upgraded),
+    upgradeWalletAddress: user.upgradeWalletAddress || null,
+    upgradeTransactionSignature: user.upgradeTransactionSignature || null,
+    upgradedAt: user.upgradedAt || null
   };
 }
 

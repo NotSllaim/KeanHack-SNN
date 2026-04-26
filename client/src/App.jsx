@@ -7,6 +7,7 @@ import { HistoryPanel } from "./components/HistoryPanel.jsx";
 import { ReadingPractice } from "./components/ReadingPractice.jsx";
 import { ScoreCard } from "./components/ScoreCard.jsx";
 import { VerbiageTraining } from "./components/VerbiageTraining.jsx";
+import { SolanaUpgrade } from "./components/SolanaUpgrade.jsx";
 import logo from "./public/logo.png";
 import { useAuth } from "./state/AuthContext.jsx";
 
@@ -19,7 +20,7 @@ const tabs = [
 const companionImages = import.meta.glob("./public/*.png", { eager: true, import: "default" });
 
 export default function App() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, updateUser } = useAuth();
   const [activeTab, setActiveTab] = React.useState("conversation");
 
   if (loading) {
@@ -40,13 +41,24 @@ export default function App() {
     verbiage: VerbiageTraining
   }[activeTab];
 
+  const handleUpgradeComplete = (updatedUser) => {
+    updateUser(updatedUser);
+  };
+
   return (
     <main className="min-h-screen bg-[#f7f5ef]">
       <header className="border-b border-stone-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <img src={logo} alt="Lingo logo" className="h-14 w-14 object-contain" />
-            <h1 className="text-3xl font-bold tracking-normal text-meadow">Lingo</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-3xl font-bold tracking-normal text-meadow">Lingo</h1>
+              {user.upgraded && (
+                <span className="rounded-md bg-meadow px-2 py-1 text-xs font-bold text-white">
+                  UPGRADED
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm">
@@ -110,6 +122,7 @@ export default function App() {
               progress={user.progress}
             />
           )}
+          <SolanaUpgrade onUpgradeComplete={handleUpgradeComplete} isUpgraded={user.upgraded} />
           <HistoryPanel />
         </aside>
       </div>
