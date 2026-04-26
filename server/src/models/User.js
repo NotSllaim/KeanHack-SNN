@@ -21,7 +21,7 @@ const userSchema = new mongoose.Schema(
     },
     profile: {
       goals: [{ type: String }],
-      preferredBot: { type: String, default: "mira" },
+      preferredBot: { type: String, default: "sana" },
       companionElement: {
         id: {
           type: String,

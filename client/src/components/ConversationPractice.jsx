@@ -8,7 +8,7 @@ const fallbackOpening = "Pick a conversation partner and tell me what has been o
 
 export function ConversationPractice() {
   const [bots, setBots] = useState([]);
-  const [botId, setBotId] = useState("mira");
+  const [botId, setBotId] = useState("sana");
   const [messages, setMessages] = useState([
     { role: "assistant", content: fallbackOpening }
   ]);
@@ -19,6 +19,7 @@ export function ConversationPractice() {
   const [liveFinalTranscript, setLiveFinalTranscript] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
+  const [aiDebug, setAiDebug] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const messagesRef = useRef(messages);
@@ -59,13 +60,14 @@ export function ConversationPractice() {
     setMessages(nextMessages);
     messagesRef.current = nextMessages;
     setInput("");
+    setAiDebug(null);
     setBusy(true);
     setError("");
 
     try {
       const data = await api("/conversation/turn", {
         method: "POST",
-        body: JSON.stringify({ botId, message, history: currentMessages })
+        body: JSON.stringify({ botId, message, history: currentMessages, includeSpeech: Boolean(options.speak) })
       });
 
       const updatedMessages = [
@@ -76,11 +78,10 @@ export function ConversationPractice() {
       messagesRef.current = updatedMessages;
       setFeedback({ ...data.feedback, thoughtBubble: data.thoughtBubble });
       setScores(data.scores);
+      setAiDebug(data.aiDebug || null);
       if (options.speak) {
         setLivePhase("ai-speaking");
         await playAudio(data.speech);
-      } else {
-        playAudio(data.speech);
       }
 
       if (options.continueLive && liveActiveRef.current) {
@@ -128,6 +129,7 @@ export function ConversationPractice() {
     setLiveFinalTranscript("");
     setFeedback(null);
     setScores(null);
+    setAiDebug(null);
     setError("");
     setMessages(openingMessages);
     messagesRef.current = openingMessages;
@@ -137,7 +139,7 @@ export function ConversationPractice() {
       setLivePhase("ai-speaking");
       const speech = await api("/voice/speak", {
         method: "POST",
-        body: JSON.stringify({ text: opening })
+        body: JSON.stringify({ text: opening, botId })
       });
       await playAudio(speech);
       if (liveActiveRef.current) {
@@ -361,6 +363,11 @@ export function ConversationPractice() {
           )}
         </section>
         {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        {aiDebug?.source === "fallback" && (
+          <div className="rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-stone-700">
+            AI fallback used: {aiDebug.reason}. Check the server terminal for `[AI debug]` details.
+          </div>
+        )}
         {feedback?.thoughtBubble && (
           <div className="inline-flex items-center gap-2 rounded-md bg-orange-50 px-3 py-2 text-sm text-stone-700">
             <Volume2 size={16} className="text-coral" />

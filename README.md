@@ -9,7 +9,7 @@ A full-stack speech confidence practice app built for hackathon and portfolio us
 - Node.js + Express backend API
 - MongoDB Atlas with Mongoose models
 - bcrypt password hashing and JWT authentication
-- Google Gemma 4 service wrapper for chat and feedback analysis
+- Google Gemini/Gemma service wrapper for chat and feedback analysis
 - ElevenLabs service wrapper for text-to-speech and speech-to-text
 
 ## Setup

@@ -36,7 +36,12 @@ export async function api(path, options = {}) {
   return data;
 }
 
-export function playAudio({ audioBase64, contentType, text }) {
+export function playAudio(speech) {
+  if (!speech) {
+    return Promise.resolve();
+  }
+
+  const { audioBase64, contentType, text } = speech;
   if (!audioBase64 || !contentType) {
     return speakWithBrowserVoice(text);
   }

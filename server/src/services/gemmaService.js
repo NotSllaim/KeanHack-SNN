@@ -8,33 +8,95 @@ const fallbackScores = {
   wording: 76
 };
 
+const conversationResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    botReply: { type: "STRING" },
+    thoughtBubble: { type: "STRING" },
+    feedback: {
+      type: "OBJECT",
+      properties: {
+        summary: { type: "STRING" },
+        strengths: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        },
+        improvements: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        },
+        fillerWords: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        }
+      },
+      required: ["summary", "strengths", "improvements", "fillerWords"],
+      propertyOrdering: ["summary", "strengths", "improvements", "fillerWords"]
+    },
+    scores: {
+      type: "OBJECT",
+      properties: {
+        confidence: { type: "NUMBER" },
+        clarity: { type: "NUMBER" },
+        engagement: { type: "NUMBER" },
+        pacing: { type: "NUMBER" },
+        wording: { type: "NUMBER" }
+      },
+      required: ["confidence", "clarity", "engagement", "pacing", "wording"],
+      propertyOrdering: ["confidence", "clarity", "engagement", "pacing", "wording"]
+    }
+  },
+  required: ["botReply", "thoughtBubble", "feedback", "scores"],
+  propertyOrdering: ["botReply", "thoughtBubble", "feedback", "scores"]
+};
+
 function hasGemmaConfig() {
   return Boolean(process.env.GEMMA_API_KEY && process.env.GEMMA_API_URL);
 }
 
-async function callGemma(prompt) {
+async function callGemma(prompt, options = {}) {
   if (!hasGemmaConfig()) {
-    return null;
+    return options.diagnostics ? { parsed: null, rawText: "", latencyMs: 0, reason: "missing_config" } : null;
   }
 
-  const response = await fetch(`${process.env.GEMMA_API_URL}?key=${process.env.GEMMA_API_KEY}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }]
-        }
-      ],
-      generationConfig: {
-        temperature: 0.8,
-        responseMimeType: "application/json"
-      }
-    })
-  });
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 16000);
+  const generationConfig = {
+    temperature: options.temperature ?? 0.55,
+    responseMimeType: "application/json"
+  };
+
+  if (options.maxOutputTokens) {
+    generationConfig.maxOutputTokens = options.maxOutputTokens;
+  }
+
+  if (options.responseSchema) {
+    generationConfig.responseSchema = options.responseSchema;
+  }
+
+  let response;
+  try {
+    response = await fetch(process.env.GEMMA_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMMA_API_KEY
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig
+      }),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const message = await response.text();
@@ -42,8 +104,41 @@ async function callGemma(prompt) {
   }
 
   const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  return text ? parseGemmaJson(text) : null;
+  const candidate = data?.candidates?.[0];
+  const text = extractGeminiText(data);
+  const parsed = text ? parseGemmaJson(text) : null;
+
+  if (options.diagnostics) {
+    return {
+      parsed,
+      rawText: text || "",
+      responsePreview: data ? truncateText(JSON.stringify(data), 700) : "",
+      finishReason: candidate?.finishReason || null,
+      promptFeedback: data?.promptFeedback || null,
+      latencyMs: Date.now() - startedAt,
+      reason: parsed ? "ok" : "invalid_json"
+    };
+  }
+
+  return parsed;
+}
+
+function extractGeminiText(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  return parts
+    .map((part) => {
+      if (typeof part.text === "string") {
+        return part.text;
+      }
+
+      if (part.functionCall) {
+        return JSON.stringify(part.functionCall.args || part.functionCall);
+      }
+
+      return "";
+    })
+    .join("")
+    .trim();
 }
 
 function parseGemmaJson(text) {
@@ -90,12 +185,12 @@ function repairJsonLikeText(text) {
     .replace(/[‘’]/g, "'");
 }
 
-function fallbackConversation({ userMessage, botId, history = [] }) {
+function fallbackConversation({ userMessage, botId, history = [], reason = "generic" }) {
   const bot = findBot(botId);
   const short = userMessage.trim().split(/\s+/).length < 8;
   const fillerWords = [...userMessage.matchAll(/\b(uh|um|uhm|like|you know|sort of|kind of)\b/gi)].map((match) => match[0]);
   const latestAssistant = [...history].reverse().find((item) => item.role === "assistant")?.content || "";
-  const botReply = buildFallbackReply({ bot, userMessage, short, latestAssistant });
+  const botReply = buildFallbackReply({ bot, userMessage, short, latestAssistant, reason });
   const thoughtBubble = buildFallbackThought({ bot, userMessage, short, fillerWords });
 
   return {
@@ -116,38 +211,144 @@ function fallbackConversation({ userMessage, botId, history = [] }) {
       confidence: short ? 65 : 80
     },
     botName: bot.name,
-    botStyle: bot.style
+    botStyle: bot.style,
+    aiDebug: {
+      source: "fallback",
+      reason
+    }
   };
 }
 
 export async function generateConversationTurn({ botId, history, userMessage }) {
   const bot = findBot(botId);
+  const compactHistory = compactConversationHistory(history);
+  const latestUserMessage = truncateText(userMessage, 1800);
   const prompt = `
 You are ${bot.name}, a ${bot.style} AI conversation practice partner.
-Return strict JSON with keys: botReply, thoughtBubble, feedback, scores.
-Do not include markdown, code fences, or text outside JSON.
-feedback must include summary, strengths array, improvements array, fillerWords array.
-scores must include confidence, clarity, engagement, pacing, wording from 0 to 100.
-Be honest but encouraging. Sometimes include a socially realistic thoughtBubble.
-Pay close attention to the latest user response. Do not repeat your previous assistant message.
+Persona: ${bot.persona || bot.description}
+Backstory: ${bot.backstory || "Use the persona and style as your identity."}
+Personal details you may reference:
+${formatBotList(bot.personalLife)}
+Speech rules:
+${formatBotList(bot.speechRules)}
+
+Task:
+1. Reply naturally to the user's latest message in character.
+2. Keep botReply under 70 words.
+3. Ask one specific follow-up based on something the user actually said.
+4. Do not repeat your previous assistant message.
+5. If the user asks about your personal life, answer from your character card. Be clear you are an AI companion if directly asked whether you are human.
+6. Do not say you are just a generic chatbot.
+7. Return only valid JSON, no markdown.
+
+JSON shape:
+{
+  "botReply": "string",
+  "thoughtBubble": "string",
+  "feedback": {
+    "summary": "string",
+    "strengths": ["string"],
+    "improvements": ["string"],
+    "fillerWords": ["string"]
+  },
+  "scores": {
+    "confidence": 0,
+    "clarity": 0,
+    "engagement": 0,
+    "pacing": 0,
+    "wording": 0
+  }
+}
 
 Recent chat:
-${history.map((item) => `${item.role}: ${item.content}`).join("\n")}
+${compactHistory}
 
-User response:
-${userMessage}
+Latest user response:
+${latestUserMessage}
 `;
 
   let generated = null;
+  let diagnostics = null;
+  let fallbackReason = "generic";
   try {
-    generated = await callGemma(prompt);
+    diagnostics = await callGemma(prompt, {
+      temperature: 0.45,
+      maxOutputTokens: 900,
+      timeoutMs: 28000,
+      responseSchema: conversationResponseSchema,
+      diagnostics: true
+    });
+    generated = diagnostics.parsed;
+    fallbackReason = diagnostics.reason === "invalid_json" ? "invalid_json" : "generic";
   } catch (error) {
+    fallbackReason = error.name === "AbortError" ? "timeout" : "generic";
     console.warn(`Gemma conversation failed; using fallback: ${error.message}`);
   }
 
-  return isUsableConversationTurn(generated, history)
-    ? generated
-    : fallbackConversation({ userMessage, botId, history });
+  const promptChars = prompt.length;
+  const isUsable = isUsableConversationTurn(generated, history);
+  const result = isUsable
+    ? {
+        ...generated,
+        aiDebug: {
+          source: "gemma",
+          reason: "ok",
+          latencyMs: diagnostics?.latencyMs || null,
+          model: process.env.GEMMA_MODEL,
+          promptChars
+        }
+      }
+    : fallbackConversation({ userMessage, botId, history, reason: fallbackReason });
+
+  result.aiDebug = {
+    ...result.aiDebug,
+    latencyMs: diagnostics?.latencyMs || null,
+    model: process.env.GEMMA_MODEL,
+    promptChars,
+    rawPreview: process.env.AI_DEBUG === "true" && diagnostics?.rawText
+      ? truncateText(diagnostics.rawText, 240)
+      : undefined
+  };
+
+  if (process.env.AI_DEBUG === "true" || result.aiDebug.source === "fallback") {
+    console.warn(
+      `[AI debug] source=${result.aiDebug.source} reason=${result.aiDebug.reason} latency=${result.aiDebug.latencyMs ?? "n/a"}ms promptChars=${promptChars} model=${process.env.GEMMA_MODEL || "unknown"}`
+    );
+    if (result.aiDebug.rawPreview) {
+      console.warn(`[AI raw preview] ${result.aiDebug.rawPreview}`);
+    }
+    if (result.aiDebug.source === "fallback" && diagnostics) {
+      console.warn(`[AI response preview] finishReason=${diagnostics.finishReason || "none"} response=${diagnostics.responsePreview || "empty"}`);
+    }
+  }
+
+  return result;
+}
+
+function compactConversationHistory(history = []) {
+  return history
+    .slice(-8)
+    .map((item) => {
+      const role = item.role === "assistant" ? "assistant" : "user";
+      return `${role}: ${truncateText(item.content || "", 520)}`;
+    })
+    .join("\n");
+}
+
+function formatBotList(items = []) {
+  if (!items.length) {
+    return "- No additional details.";
+  }
+
+  return items.map((item) => `- ${item}`).join("\n");
+}
+
+function truncateText(text, maxLength) {
+  if (!text || text.length <= maxLength) {
+    return text || "";
+  }
+
+  return `${text.slice(0, maxLength)}...`;
 }
 
 function isUsableConversationTurn(turn, history = []) {
@@ -222,10 +423,19 @@ ${metricsText}
   };
 }
 
-function buildFallbackReply({ bot, userMessage, short, latestAssistant }) {
+function buildFallbackReply({ bot, userMessage, short, latestAssistant, reason }) {
   const message = userMessage.toLowerCase();
   const alreadyAskedImportantPart = latestAssistant.toLowerCase().includes("most important part");
   const alreadyAskedSpecificExample = latestAssistant.toLowerCase().includes("specific project, skill, or goal");
+  const extractedTopic = extractConversationTopic(userMessage);
+
+  if (reason === "timeout") {
+    return avoidRepeat(
+      `${bot.name === "Theo" ? "I caught the main idea" : "I am with you"}: ${extractedTopic}. Let's make that easier to respond to. What is the one point you most want me to ask about?`,
+      latestAssistant,
+      `There is a lot in that answer. Choose one thread for me: ${extractedTopic}, or something else you want to unpack?`
+    );
+  }
 
   if (short) {
     return avoidRepeat(
@@ -295,6 +505,21 @@ function buildFallbackReply({ bot, userMessage, short, latestAssistant }) {
 
 function avoidRepeat(reply, latestAssistant, alternateReply) {
   return reply.trim() === latestAssistant.trim() ? alternateReply : reply;
+}
+
+function extractConversationTopic(userMessage) {
+  const cleaned = userMessage
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b(uh|um|uhm|like|you know)\b/gi, "")
+    .trim();
+
+  if (!cleaned) {
+    return "your last response";
+  }
+
+  const firstSentence = cleaned.split(/[.!?]/).find((sentence) => sentence.trim().length > 12);
+  return truncateText(firstSentence || cleaned, 120);
 }
 
 function buildFallbackThought({ bot, userMessage, short, fillerWords }) {
