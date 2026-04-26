@@ -8,7 +8,6 @@ import { HistoryPanel } from "./components/HistoryPanel.jsx";
 import { ReadingPractice } from "./components/ReadingPractice.jsx";
 import { ScoreCard } from "./components/ScoreCard.jsx";
 import { VerbiageTraining } from "./components/VerbiageTraining.jsx";
-import { SolanaUpgrade } from "./components/SolanaUpgrade.jsx";
 import { UpgradeScreen } from "./components/UpgradeScreen.jsx";
 import logo from "./public/logo.png";
 import { useAuth } from "./state/AuthContext.jsx";
@@ -22,7 +21,7 @@ const tabs = [
 const companionImages = import.meta.glob("./public/*.png", { eager: true, import: "default" });
 
 export default function App() {
-  const { user, loading, logout, updateUser } = useAuth();
+  const { user, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = React.useState("conversation");
   const [view, setView] = React.useState("home");
   const [theme, setTheme] = React.useState(() => localStorage.getItem("lingo_theme") || "dark");
@@ -84,10 +83,6 @@ export default function App() {
     reading: ReadingPractice,
     verbiage: VerbiageTraining
   }[activeTab];
-
-  const handleUpgradeComplete = (updatedUser) => {
-    updateUser(updatedUser);
-  };
 
   return (
     <main className="min-h-screen bg-[#f7f5ef]">
@@ -175,7 +170,6 @@ export default function App() {
               progress={user.progress}
             />
           )}
-          <SolanaUpgrade onUpgradeComplete={handleUpgradeComplete} isUpgraded={user.tier === "pro"} />
           <HistoryPanel />
         </aside>
       </div>
