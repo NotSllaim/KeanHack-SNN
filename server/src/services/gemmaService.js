@@ -124,6 +124,101 @@ function supportsThinkingBudget() {
   return configuredModel.includes("gemini-2.5");
 }
 
+function hasSnowflakeConfig() {
+  const hasAccount = Boolean(process.env.SNOWFLAKE_ACCOUNT);
+  const hasToken = Boolean(process.env.SNOWFLAKE_TOKEN);
+
+  if (!hasAccount || !hasToken) {
+    console.warn(`[Config Check] Snowflake config missing! (CWD: ${process.cwd()})\n -> SNOWFLAKE_ACCOUNT: ${hasAccount}\n -> SNOWFLAKE_TOKEN: ${hasToken}\n -> Is .env loading at all? GEMMA_API_KEY present: ${Boolean(process.env.GEMMA_API_KEY)}`);
+  }
+
+  return hasAccount && hasToken;
+}
+
+async function callSnowflake(prompt, options = {}) {
+  const startedAt = Date.now();
+
+  if (!hasSnowflakeConfig()) {
+    return options.diagnostics
+      ? { parsed: null, rawText: "", latencyMs: 0, reason: "missing_config" }
+      : null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 16000);
+  const fullPrompt = buildJsonPrompt(prompt, options.exampleOutput);
+
+  try {
+    const response = await fetch(`https://${process.env.SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/inference:complete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.SNOWFLAKE_TOKEN}`
+      },
+      body: JSON.stringify({
+        model: process.env.SNOWFLAKE_MODEL || "claude-3-5-sonnet",
+        messages: [
+          {
+            role: "user",
+            content: fullPrompt
+          }
+        ],
+        temperature: options.temperature ?? 0.55,
+        max_tokens: options.maxOutputTokens
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      console.error(`Snowflake request failed (${response.status}):`, message);
+      return options.diagnostics
+        ? {
+            parsed: null,
+            rawText: "",
+            responsePreview: truncateText(message, 700),
+            finishReason: null,
+            promptFeedback: null,
+            latencyMs: Date.now() - startedAt,
+            reason: "request_failed"
+          }
+        : null;
+    }
+
+    const data = await response.json();
+    const text = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.messages || data?.text || "";
+    const parsed = text ? parseGemmaJson(text, options.requiredKey) : null;
+
+    if (options.diagnostics) {
+      return {
+        parsed,
+        rawText: text || "",
+        responsePreview: data ? truncateText(JSON.stringify(data), 700) : "",
+        finishReason: data?.choices?.[0]?.finish_reason || null,
+        promptFeedback: null,
+        latencyMs: Date.now() - startedAt,
+        reason: parsed ? "ok" : "invalid_json"
+      };
+    }
+
+    return parsed;
+  } catch (error) {
+    return options.diagnostics
+      ? {
+          parsed: null,
+          rawText: "",
+          responsePreview: "",
+          finishReason: null,
+          promptFeedback: null,
+          latencyMs: Date.now() - startedAt,
+          reason: error.name === "AbortError" ? "timeout" : "request_failed"
+        }
+      : null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function callGemma(prompt, options = {}) {
   const startedAt = Date.now();
 
@@ -451,11 +546,10 @@ ${latestUserMessage}
   let fallbackReason = "generic";
 
   try {
-    diagnostics = await callGemma(prompt, {
+    diagnostics = await callSnowflake(prompt, {
       temperature: 0.45,
       maxOutputTokens: 900,
       timeoutMs: 28000,
-      responseSchema: conversationResponseSchema,
       requiredKey: "botReply",
       diagnostics: true
     });
@@ -463,7 +557,7 @@ ${latestUserMessage}
     fallbackReason = diagnostics.reason === "ok" ? "generic" : diagnostics.reason;
   } catch (error) {
     fallbackReason = error.name === "AbortError" ? "timeout" : "generic";
-    console.warn(`Gemma conversation failed; using fallback: ${error.message}`);
+    console.warn(`Snowflake conversation failed; using fallback: ${error.message}`);
   }
 
   const promptChars = prompt.length;
@@ -472,10 +566,10 @@ ${latestUserMessage}
     ? {
         ...generated,
         aiDebug: {
-          source: "gemma",
+          source: "snowflake",
           reason: "ok",
           latencyMs: diagnostics?.latencyMs || null,
-          model: process.env.GEMMA_MODEL,
+          model: process.env.SNOWFLAKE_MODEL || "claude-3-5-sonnet",
           promptChars
         }
       }
@@ -484,7 +578,7 @@ ${latestUserMessage}
   result.aiDebug = {
     ...result.aiDebug,
     latencyMs: diagnostics?.latencyMs || null,
-    model: process.env.GEMMA_MODEL,
+    model: process.env.SNOWFLAKE_MODEL || "claude-3-5-sonnet",
     promptChars,
     rawPreview: process.env.AI_DEBUG === "true" && diagnostics?.rawText
       ? truncateText(diagnostics.rawText, 240)
@@ -493,7 +587,7 @@ ${latestUserMessage}
 
   if (process.env.AI_DEBUG === "true" || result.aiDebug.source === "fallback") {
     console.warn(
-      `[AI debug] source=${result.aiDebug.source} reason=${result.aiDebug.reason} latency=${result.aiDebug.latencyMs ?? "n/a"}ms promptChars=${promptChars} model=${process.env.GEMMA_MODEL || "unknown"}`
+      `[AI debug] source=${result.aiDebug.source} reason=${result.aiDebug.reason} latency=${result.aiDebug.latencyMs ?? "n/a"}ms promptChars=${promptChars} model=${process.env.SNOWFLAKE_MODEL || "claude-3-5-sonnet"}`
     );
     if (result.aiDebug.rawPreview) {
       console.warn(`[AI raw preview] ${result.aiDebug.rawPreview}`);
@@ -827,7 +921,7 @@ Response:
 ${responseText}
 `;
 
-  const generated = await callGemma(prompt, {
+  let generated = await callGemma(prompt, {
     temperature: 0.35,
     maxOutputTokens: 850,
     timeoutMs: 22000,
@@ -835,6 +929,17 @@ ${responseText}
     requiredKey: "feedback",
     exampleOutput: "{\"feedback\":{\"summary\":\"Clear answer, but several phrases could be sharper.\",\"strengths\":[\"Answered the prompt\",\"Friendly tone\"],\"improvements\":[\"Replace vague words\",\"Trim filler\"],\"highlights\":[{\"text\":\"kind of\",\"reason\":\"Hedges your point.\",\"suggestion\":\"State the idea directly.\"}]},\"scores\":{\"confidence\":70,\"clarity\":74,\"engagement\":68,\"pacing\":75,\"wording\":65}}"
   });
+
+  if (!generated) {
+    console.warn("Gemma verbiage analysis failed; falling back to Snowflake.");
+    generated = await callSnowflake(prompt, {
+      temperature: 0.35,
+      maxOutputTokens: 850,
+      timeoutMs: 22000,
+      requiredKey: "feedback",
+      exampleOutput: "{\"feedback\":{\"summary\":\"Clear answer, but several phrases could be sharper.\",\"strengths\":[\"Answered the prompt\",\"Friendly tone\"],\"improvements\":[\"Replace vague words\",\"Trim filler\"],\"highlights\":[{\"text\":\"kind of\",\"reason\":\"Hedges your point.\",\"suggestion\":\"State the idea directly.\"}]},\"scores\":{\"confidence\":70,\"clarity\":74,\"engagement\":68,\"pacing\":75,\"wording\":65}}"
+    });
+  }
 
   return generated || {
     feedback: {
