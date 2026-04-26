@@ -119,6 +119,11 @@ function hasGemmaConfig() {
   return Boolean(process.env.GEMMA_API_KEY && process.env.GEMMA_API_URL);
 }
 
+function supportsThinkingBudget() {
+  const configuredModel = `${process.env.GEMMA_MODEL || ""} ${process.env.GEMMA_API_URL || ""}`.toLowerCase();
+  return configuredModel.includes("gemini-2.5");
+}
+
 async function callGemma(prompt, options = {}) {
   const startedAt = Date.now();
 
@@ -132,11 +137,14 @@ async function callGemma(prompt, options = {}) {
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 16000);
   const generationConfig = {
     temperature: options.temperature ?? 0.55,
-    responseMimeType: "application/json",
-    thinkingConfig: {
-      thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0)
-    }
+    responseMimeType: "application/json"
   };
+
+  if (supportsThinkingBudget()) {
+    generationConfig.thinkingConfig = {
+      thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0)
+    };
+  }
 
   if (options.maxOutputTokens) {
     generationConfig.maxOutputTokens = options.maxOutputTokens;
