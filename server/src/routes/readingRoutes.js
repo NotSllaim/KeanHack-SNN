@@ -19,20 +19,21 @@ router.get("/passage", requireAuth, async (req, res, next) => {
 
 router.post("/analyze", requireAuth, async (req, res, next) => {
   try {
-    const { passage, transcript } = req.body;
+    const { passage, transcript, audioMetrics } = req.body;
 
     if (!passage || !transcript) {
       return res.status(400).json({ message: "Passage and transcript are required" });
     }
 
-    const analysis = await analyzeReading({ passage, transcript });
+    const analysis = await analyzeReading({ passage, transcript, audioMetrics });
     const activity = await Activity.create({
       user: req.user._id,
       type: "reading",
       prompt: passage,
       userResponse: transcript,
       feedback: analysis.feedback,
-      scores: analysis.scores
+      scores: analysis.scores,
+      metadata: { audioMetrics }
     });
 
     await refreshUserAverages(req.user._id);

@@ -2,11 +2,14 @@ import { RefreshCw, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { FeedbackPanel } from "./FeedbackPanel.jsx";
+import { LiveTranscriptPanel } from "./LiveTranscriptPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 export function VerbiageTraining() {
   const [prompt, setPrompt] = useState("");
   const [response, setResponse] = useState("");
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [recording, setRecording] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -16,6 +19,7 @@ export function VerbiageTraining() {
     const data = await api("/verbiage/prompt");
     setPrompt(data.prompt);
     setResponse("");
+    setLiveTranscript("");
     setFeedback(null);
     setScores(null);
   }
@@ -32,6 +36,7 @@ export function VerbiageTraining() {
       formData.append("audio", blob, "verbiage.webm");
       const data = await api("/voice/transcribe", { method: "POST", body: formData });
       setResponse(data.text);
+      setLiveTranscript("");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -85,13 +90,23 @@ export function VerbiageTraining() {
           />
         </label>
         <div className="mt-4 flex flex-wrap gap-2">
-          <RecorderButton onAudio={handleAudio} disabled={busy} />
+          <RecorderButton
+            onAudio={handleAudio}
+            disabled={busy}
+            onLiveTranscript={setLiveTranscript}
+            onRecordingChange={setRecording}
+          />
           <button onClick={analyze} disabled={busy || !response.trim()} className="inline-flex h-11 items-center gap-2 rounded-md bg-ink px-4 font-semibold text-white disabled:opacity-60">
             <Send size={17} />
             Analyze
           </button>
         </div>
       </div>
+
+      <LiveTranscriptPanel
+        transcript={liveTranscript}
+        label={recording ? "Live response transcript" : "Latest live transcript"}
+      />
 
       {feedback?.highlights?.length > 0 && (
         <section className="rounded-md border border-stone-200 bg-white p-5">

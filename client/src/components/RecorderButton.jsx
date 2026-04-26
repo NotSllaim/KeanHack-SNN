@@ -1,14 +1,27 @@
 import { Mic, Square } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export function RecorderButton({ onAudio, disabled }) {
+export function RecorderButton({ onAudio, disabled, onLiveTranscript, onRecordingChange }) {
   const recorderRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const finalTranscriptRef = useRef("");
   const chunksRef = useRef([]);
   const [recording, setRecording] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      recorderRef.current?.state === "recording" && recorderRef.current.stop();
+    };
+  }, []);
 
   async function start() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunksRef.current = [];
+    finalTranscriptRef.current = "";
+    onLiveTranscript?.("");
+    startLiveTranscription();
+
     const recorder = new MediaRecorder(stream);
     recorderRef.current = recorder;
 
@@ -26,11 +39,46 @@ export function RecorderButton({ onAudio, disabled }) {
 
     recorder.start();
     setRecording(true);
+    onRecordingChange?.(true);
   }
 
   function stop() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
     recorderRef.current?.stop();
     setRecording(false);
+    onRecordingChange?.(false);
+  }
+
+  function startLiveTranscription() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition || !onLiveTranscript) {
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event) => {
+      let interimText = "";
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const transcript = event.results[index][0].transcript;
+        if (event.results[index].isFinal) {
+          finalTranscriptRef.current = `${finalTranscriptRef.current} ${transcript}`.trim();
+        } else {
+          interimText += transcript;
+        }
+      }
+
+      onLiveTranscript(`${finalTranscriptRef.current} ${interimText}`.trim());
+    };
+
+    recognition.onerror = () => {};
+    recognition.start();
   }
 
   return (
