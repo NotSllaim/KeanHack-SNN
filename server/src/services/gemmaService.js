@@ -121,7 +121,7 @@ function hasGemmaConfig() {
 
 function supportsThinkingBudget() {
   const configuredModel = `${process.env.GEMMA_MODEL || ""} ${process.env.GEMMA_API_URL || ""}`.toLowerCase();
-  return configuredModel.includes("gemini-2.5") || configuredModel.includes("gemini-3");
+  return configuredModel.includes("gemini-2.5");
 }
 
 async function callGemma(prompt, options = {}) {
