@@ -1,72 +1,94 @@
-function hasElevenLabsConfig() {
-  return Boolean(process.env.ELEVENLABS_API_KEY);
+function hasDeepgramConfig() {
+  return Boolean(process.env.DEEPGRAM_API_KEY);
 }
 
 let ttsFallbackReason = null;
 
-export async function textToSpeech(text) {
+const botVoiceModels = {
+  sana: process.env.DEEPGRAM_TTS_SANA_MODEL_ID || "aura-2-athena-en",
+  theo: process.env.DEEPGRAM_TTS_THEO_MODEL_ID || "aura-2-orpheus-en",
+  jax: process.env.DEEPGRAM_TTS_JAX_MODEL_ID || "aura-2-apollo-en",
+  mira: process.env.DEEPGRAM_TTS_MIRA_MODEL_ID || "aura-2-vesta-en"
+};
+
+export async function textToSpeech(text, options = {}) {
   if (!text?.trim()) {
-    return browserSpeechFallback("", "No text was provided for speech");
+    return {
+      audioBase64: null,
+      contentType: null,
+      text: "",
+      provider: "deepgram",
+      fallbackReason: "No text was provided for speech",
+      demo: true
+    };
   }
 
-  if (ttsFallbackReason) {
-    return browserSpeechFallback(text, ttsFallbackReason);
-  }
-
-  if (!hasElevenLabsConfig()) {
-    return browserSpeechFallback(text, "ElevenLabs API key is not configured");
-  }
-
-  const voiceId = process.env.ELEVENLABS_TTS_VOICE_ID;
-  if (!voiceId) {
-    return browserSpeechFallback(text, "ElevenLabs voice id is not configured");
-  }
-
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "xi-api-key": process.env.ELEVENLABS_API_KEY
-    },
-    body: JSON.stringify({
+  if (!hasDeepgramConfig()) {
+    return {
+      audioBase64: null,
+      contentType: null,
       text,
-      model_id: process.env.ELEVENLABS_TTS_MODEL_ID || "eleven_multilingual_v2",
-      voice_settings: {
-        stability: 0.55,
-        similarity_boost: 0.75
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    if (message.includes("paid_plan_required") || message.includes("payment_required")) {
-      ttsFallbackReason = message;
-      console.warn("ElevenLabs TTS requires a paid voice for the configured voice id. Browser speech fallback is now active.");
-    } else {
-      console.warn(`ElevenLabs text to speech failed; falling back to browser speech: ${message}`);
-    }
-    return browserSpeechFallback(text, message);
+      provider: "browser-speech",
+      fallbackReason: "Deepgram API key is not configured",
+      demo: true
+    };
   }
 
-  const contentType = response.headers.get("content-type") || "audio/mpeg";
-  const audioBuffer = Buffer.from(await response.arrayBuffer());
-  return { audioBase64: audioBuffer.toString("base64"), contentType, text, provider: "elevenlabs", demo: false };
+  const model = getDeepgramVoiceModel(options.botId);
+
+  try {
+    const response = await fetch(`https://api.deepgram.com/v1/speak?model=${model}&encoding=mp3`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Token ${process.env.DEEPGRAM_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        text
+      })
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      console.warn(`Deepgram text to speech failed: ${message}`);
+      return {
+        audioBase64: null,
+        contentType: null,
+        text,
+        provider: "browser-speech",
+        fallbackReason: message,
+        demo: true
+      };
+    }
+
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    return {
+      audioBase64: audioBuffer.toString("base64"),
+      contentType: "audio/mpeg",
+      text,
+      provider: "deepgram",
+      voiceModel: model,
+      demo: false
+    };
+  } catch (error) {
+    console.error("Deepgram TTS error:", error);
+    return {
+      audioBase64: null,
+      contentType: null,
+      text,
+      provider: "browser-speech",
+      fallbackReason: error.message,
+      demo: true
+    };
+  }
 }
 
-function browserSpeechFallback(text, reason) {
-  return {
-    audioBase64: null,
-    contentType: null,
-    text,
-    provider: "browser-speech",
-    fallbackReason: reason,
-    demo: true
-  };
+function getDeepgramVoiceModel(botId) {
+  return botVoiceModels[botId] || process.env.DEEPGRAM_TTS_MODEL_ID || "aura-2-arcas-en";
 }
 
 export async function speechToText(file) {
-  if (!hasElevenLabsConfig()) {
+  if (!process.env.ELEVENLABS_API_KEY) {
     return {
       text: "This is a demo transcript. Add your ElevenLabs API key to transcribe microphone audio.",
       demo: true
@@ -93,4 +115,3 @@ export async function speechToText(file) {
   const data = await response.json();
   return { text: data.text || "", demo: false };
 }
-

@@ -8,6 +8,19 @@ const fallbackScores = {
   wording: 76
 };
 
+const scoreSchema = {
+  type: "OBJECT",
+  properties: {
+    confidence: { type: "NUMBER" },
+    clarity: { type: "NUMBER" },
+    engagement: { type: "NUMBER" },
+    pacing: { type: "NUMBER" },
+    wording: { type: "NUMBER" }
+  },
+  required: ["confidence", "clarity", "engagement", "pacing", "wording"],
+  propertyOrdering: ["confidence", "clarity", "engagement", "pacing", "wording"]
+};
+
 const conversationResponseSchema = {
   type: "OBJECT",
   properties: {
@@ -33,21 +46,73 @@ const conversationResponseSchema = {
       required: ["summary", "strengths", "improvements", "fillerWords"],
       propertyOrdering: ["summary", "strengths", "improvements", "fillerWords"]
     },
-    scores: {
-      type: "OBJECT",
-      properties: {
-        confidence: { type: "NUMBER" },
-        clarity: { type: "NUMBER" },
-        engagement: { type: "NUMBER" },
-        pacing: { type: "NUMBER" },
-        wording: { type: "NUMBER" }
-      },
-      required: ["confidence", "clarity", "engagement", "pacing", "wording"],
-      propertyOrdering: ["confidence", "clarity", "engagement", "pacing", "wording"]
-    }
+    scores: scoreSchema
   },
   required: ["botReply", "thoughtBubble", "feedback", "scores"],
   propertyOrdering: ["botReply", "thoughtBubble", "feedback", "scores"]
+};
+
+const readingResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    feedback: {
+      type: "OBJECT",
+      properties: {
+        summary: { type: "STRING" },
+        strengths: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        },
+        improvements: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        }
+      },
+      required: ["summary", "strengths", "improvements"],
+      propertyOrdering: ["summary", "strengths", "improvements"]
+    },
+    scores: scoreSchema
+  },
+  required: ["feedback", "scores"],
+  propertyOrdering: ["feedback", "scores"]
+};
+
+const verbiageResponseSchema = {
+  type: "OBJECT",
+  properties: {
+    feedback: {
+      type: "OBJECT",
+      properties: {
+        summary: { type: "STRING" },
+        strengths: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        },
+        improvements: {
+          type: "ARRAY",
+          items: { type: "STRING" }
+        },
+        highlights: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              text: { type: "STRING" },
+              reason: { type: "STRING" },
+              suggestion: { type: "STRING" }
+            },
+            required: ["text", "reason", "suggestion"],
+            propertyOrdering: ["text", "reason", "suggestion"]
+          }
+        }
+      },
+      required: ["summary", "strengths", "improvements", "highlights"],
+      propertyOrdering: ["summary", "strengths", "improvements", "highlights"]
+    },
+    scores: scoreSchema
+  },
+  required: ["feedback", "scores"],
+  propertyOrdering: ["feedback", "scores"]
 };
 
 function hasGemmaConfig() {
@@ -55,16 +120,22 @@ function hasGemmaConfig() {
 }
 
 async function callGemma(prompt, options = {}) {
+  const startedAt = Date.now();
+
   if (!hasGemmaConfig()) {
-    return options.diagnostics ? { parsed: null, rawText: "", latencyMs: 0, reason: "missing_config" } : null;
+    return options.diagnostics
+      ? { parsed: null, rawText: "", latencyMs: 0, reason: "missing_config" }
+      : null;
   }
 
-  const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 16000);
   const generationConfig = {
     temperature: options.temperature ?? 0.55,
-    responseMimeType: "application/json"
+    responseMimeType: "application/json",
+    thinkingConfig: {
+      thinkingBudget: Number(process.env.GEMINI_THINKING_BUDGET ?? 0)
+    }
   };
 
   if (options.maxOutputTokens) {
@@ -75,9 +146,10 @@ async function callGemma(prompt, options = {}) {
     generationConfig.responseSchema = options.responseSchema;
   }
 
-  let response;
+  const fullPrompt = buildJsonPrompt(prompt, options.exampleOutput);
+
   try {
-    response = await fetch(process.env.GEMMA_API_URL, {
+    const response = await fetch(process.env.GEMMA_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -87,40 +159,81 @@ async function callGemma(prompt, options = {}) {
         contents: [
           {
             role: "user",
-            parts: [{ text: prompt }]
+            parts: [{ text: fullPrompt }]
           }
         ],
         generationConfig
       }),
       signal: controller.signal
     });
+
+    if (!response.ok) {
+      const message = await response.text();
+      const reason = getGeminiErrorReason(response.status, message);
+      console.error(`Gemma request failed (${response.status}):`, message);
+      return options.diagnostics
+        ? {
+            parsed: null,
+            rawText: "",
+            responsePreview: truncateText(message, 700),
+            finishReason: null,
+            promptFeedback: null,
+            latencyMs: Date.now() - startedAt,
+            reason
+          }
+        : null;
+    }
+
+    const data = await response.json();
+    const candidate = data?.candidates?.[0];
+    const text = extractGeminiText(data);
+    const parsed = text ? parseGemmaJson(text, options.requiredKey) : null;
+
+    if (options.diagnostics) {
+      return {
+        parsed,
+        rawText: text || "",
+        responsePreview: data ? truncateText(JSON.stringify(data), 700) : "",
+        finishReason: candidate?.finishReason || null,
+        promptFeedback: data?.promptFeedback || null,
+        latencyMs: Date.now() - startedAt,
+        reason: parsed ? "ok" : getInvalidJsonReason(candidate)
+      };
+    }
+
+    return parsed;
   } finally {
     clearTimeout(timeout);
   }
+}
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`Gemma request failed: ${message}`);
+function getGeminiErrorReason(status, message) {
+  if (status === 429 || message.includes("RESOURCE_EXHAUSTED") || message.includes("Quota exceeded")) {
+    return "quota_exceeded";
   }
 
-  const data = await response.json();
-  const candidate = data?.candidates?.[0];
-  const text = extractGeminiText(data);
-  const parsed = text ? parseGemmaJson(text) : null;
+  return "request_failed";
+}
 
-  if (options.diagnostics) {
-    return {
-      parsed,
-      rawText: text || "",
-      responsePreview: data ? truncateText(JSON.stringify(data), 700) : "",
-      finishReason: candidate?.finishReason || null,
-      promptFeedback: data?.promptFeedback || null,
-      latencyMs: Date.now() - startedAt,
-      reason: parsed ? "ok" : "invalid_json"
-    };
-  }
+function getInvalidJsonReason(candidate) {
+  return candidate?.finishReason === "MAX_TOKENS" ? "max_tokens" : "invalid_json";
+}
 
-  return parsed;
+function buildJsonPrompt(prompt, exampleOutput) {
+  const example = exampleOutput
+    ? `
+
+Example JSON shape:
+${exampleOutput}`
+    : "";
+
+  return `${prompt}
+
+CRITICAL OUTPUT RULES:
+- Return one raw JSON object only.
+- Start with { and end with }.
+- Do not include markdown fences, bullets, commentary, or a preamble.
+- Do not narrate reasoning.${example}`;
 }
 
 function extractGeminiText(data) {
@@ -141,18 +254,22 @@ function extractGeminiText(data) {
     .trim();
 }
 
-function parseGemmaJson(text) {
+function parseGemmaJson(text, requiredKey) {
   const trimmed = text.trim();
   const candidates = [
     trimmed,
     trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, ""),
     extractJsonObject(trimmed),
-    repairJsonLikeText(extractJsonObject(trimmed))
+    repairJsonLikeText(extractJsonObject(trimmed)),
+    ...findBalancedObjects(trimmed)
   ].filter(Boolean);
 
   for (const candidate of candidates) {
     try {
-      return JSON.parse(candidate);
+      const parsed = JSON.parse(candidate);
+      if (!requiredKey || parsed?.[requiredKey] !== undefined) {
+        return parsed;
+      }
     } catch (_error) {
       // Try the next cleanup strategy before falling back.
     }
@@ -173,6 +290,55 @@ function extractJsonObject(text) {
   return text.slice(firstBrace, lastBrace + 1);
 }
 
+function findBalancedObjects(text) {
+  const objects = [];
+
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "{") {
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (ch === "\"") {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          objects.push(text.slice(i, j + 1));
+          break;
+        }
+      }
+    }
+  }
+
+  return objects;
+}
+
 function repairJsonLikeText(text) {
   if (!text) {
     return null;
@@ -181,8 +347,8 @@ function repairJsonLikeText(text) {
   return text
     .replace(/,\s*}/g, "}")
     .replace(/,\s*]/g, "]")
-    .replace(/[“”]/g, "\"")
-    .replace(/[‘’]/g, "'");
+    .replace(/[\u201c\u201d]/g, "\"")
+    .replace(/[\u2018\u2019]/g, "'");
 }
 
 function fallbackConversation({ userMessage, botId, history = [], reason = "generic" }) {
@@ -202,8 +368,7 @@ function fallbackConversation({ userMessage, botId, history = [], reason = "gene
         : "Strong conversational momentum. You added context and made it easier for the other person to continue.",
       strengths: short ? ["Clear and easy to understand"] : ["Added context", "Kept the conversation open"],
       improvements: buildFallbackImprovements({ short, fillerWords, botId }),
-      fillerWords,
-      thoughtBubble: ""
+      fillerWords
     },
     scores: {
       ...fallbackScores,
@@ -219,7 +384,7 @@ function fallbackConversation({ userMessage, botId, history = [], reason = "gene
   };
 }
 
-export async function generateConversationTurn({ botId, history, userMessage }) {
+export async function generateConversationTurn({ botId, history = [], userMessage }) {
   const bot = findBot(botId);
   const compactHistory = compactConversationHistory(history);
   const latestUserMessage = truncateText(userMessage, 1800);
@@ -239,9 +404,15 @@ Task:
 4. Do not repeat your previous assistant message.
 5. If the user asks about your personal life, answer from your character card. Be clear you are an AI companion if directly asked whether you are human.
 6. Do not say you are just a generic chatbot.
-7. Return only valid JSON, no markdown.
 
-JSON shape:
+Scoring rules:
+- feedback and scores must evaluate only the user's latest response as a standalone speech sample.
+- Do not average across the conversation.
+- Judge word choice, specificity, filler words, length, structure, and energy.
+- feedback must include summary, strengths array, improvements array, and fillerWords array.
+- scores must include confidence, clarity, engagement, pacing, and wording from 0 to 100.
+
+Return JSON with this shape:
 {
   "botReply": "string",
   "thoughtBubble": "string",
@@ -270,16 +441,18 @@ ${latestUserMessage}
   let generated = null;
   let diagnostics = null;
   let fallbackReason = "generic";
+
   try {
     diagnostics = await callGemma(prompt, {
       temperature: 0.45,
       maxOutputTokens: 900,
       timeoutMs: 28000,
       responseSchema: conversationResponseSchema,
+      requiredKey: "botReply",
       diagnostics: true
     });
     generated = diagnostics.parsed;
-    fallbackReason = diagnostics.reason === "invalid_json" ? "invalid_json" : "generic";
+    fallbackReason = diagnostics.reason === "ok" ? "generic" : diagnostics.reason;
   } catch (error) {
     fallbackReason = error.name === "AbortError" ? "timeout" : "generic";
     console.warn(`Gemma conversation failed; using fallback: ${error.message}`);
@@ -357,7 +530,11 @@ function isUsableConversationTurn(turn, history = []) {
   }
 
   const latestAssistant = [...history].reverse().find((item) => item.role === "assistant")?.content?.trim();
-  return !latestAssistant || turn.botReply.trim() !== latestAssistant;
+  return !latestAssistant || normalizeText(turn.botReply) !== normalizeText(latestAssistant);
+}
+
+function normalizeText(text = "") {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 export async function analyzeReading({ passage, transcript, audioMetrics }) {
@@ -377,29 +554,13 @@ Measured audio delivery metrics:
     : "No audio delivery metrics were provided. Base delivery feedback only on the transcript.";
 
   const prompt = `
-Analyze this read-aloud practice response. Return strict JSON with keys feedback and scores.
-Do not include markdown, bullet points outside JSON, code fences, commentary, or explanations.
-Use exactly this shape:
-{
-  "feedback": {
-    "summary": "string",
-    "strengths": ["string"],
-    "improvements": ["string"]
-  },
-  "scores": {
-    "confidence": 0,
-    "clarity": 0,
-    "engagement": 0,
-    "pacing": 0,
-    "wording": 0
-  }
-}
+Analyze this read-aloud practice response.
 Consider pacing, rushing, volume consistency, hesitation, smoothness, confidence, clarity, and flow.
 Use the measured audio metrics as direct evidence. A healthy reading pace is usually about 120-160 WPM.
 Very low average volume suggests the user may be too quiet. High volume variation suggests uneven delivery.
 Frequent or long pauses suggest hesitation or difficulty with phrasing.
-feedback must include summary, strengths array, improvements array.
-scores must include confidence, clarity, engagement, pacing, wording from 0 to 100.
+feedback must include summary, strengths array, and improvements array.
+scores must include confidence, clarity, engagement, pacing, and wording from 0 to 100.
 
 Passage:
 ${passage}
@@ -410,9 +571,17 @@ ${transcript}
 ${metricsText}
 `;
 
-  const generated = await callGemma(prompt);
+  const generated = await callGemma(prompt, {
+    temperature: 0.35,
+    maxOutputTokens: 700,
+    timeoutMs: 22000,
+    responseSchema: readingResponseSchema,
+    requiredKey: "feedback",
+    exampleOutput: "{\"feedback\":{\"summary\":\"Steady delivery with a few rushed phrases.\",\"strengths\":[\"Clear articulation\",\"Good volume\"],\"improvements\":[\"Pause at commas\",\"Slow down on longer sentences\"]},\"scores\":{\"confidence\":75,\"clarity\":80,\"engagement\":70,\"pacing\":68,\"wording\":76}}"
+  });
   const fallbackPacing = scorePacing(audioMetrics?.wordsPerMinute);
   const fallbackClarity = scoreVolume(audioMetrics);
+
   return generated || {
     feedback: {
       summary: fallbackReadingSummary(audioMetrics),
@@ -437,6 +606,14 @@ function buildFallbackReply({ bot, userMessage, short, latestAssistant, reason }
     );
   }
 
+  if (reason === "quota_exceeded") {
+    return avoidRepeat(
+      "I am temporarily rate-limited, so I cannot give the full AI response yet. Still, that hackathon project angle is useful. What is the clearest one-sentence version of what your speech checker does?",
+      latestAssistant,
+      "The AI is rate-limited for a moment, but keep the thread going: what problem does your project solve in one sentence?"
+    );
+  }
+
   if (short) {
     return avoidRepeat(
       "Give me one more detail there. What is the part you actually want the other person to remember?",
@@ -446,7 +623,15 @@ function buildFallbackReply({ bot, userMessage, short, latestAssistant, reason }
   }
 
   if (bot.id === "theo") {
-    if (/\b(microsoft|xbox|internship|full-time|full time|job|built|build|project|app|website|research)\b/.test(message)) {
+    if (/\b(hackathon|ai speech checker|speech checker|project)\b/.test(message)) {
+      return avoidRepeat(
+        "That is a solid project description. Now make it sharper for a professional intro: who is it for, what does it analyze, and what outcome should the user feel?",
+        latestAssistant,
+        "Good. Now frame it like a pitch: who is the user, what pain are you solving, and what makes your approach different?"
+      );
+    }
+
+    if (/\b(microsoft|xbox|internship|full-time|full time|job|built|build|app|website|research)\b/.test(message)) {
       return avoidRepeat(
         "That is a big claim, so in a real conversation I would make it more believable by adding scope. What exactly did you build, what tools did you use, and what changed because of your work?",
         latestAssistant,
@@ -503,8 +688,8 @@ function buildFallbackReply({ bot, userMessage, short, latestAssistant, reason }
   );
 }
 
-function avoidRepeat(reply, latestAssistant, alternateReply) {
-  return reply.trim() === latestAssistant.trim() ? alternateReply : reply;
+function avoidRepeat(reply, latestAssistant = "", alternateReply) {
+  return normalizeText(reply) === normalizeText(latestAssistant) ? alternateReply : reply;
 }
 
 function extractConversationTopic(userMessage) {
@@ -621,11 +806,11 @@ function fallbackReadingImprovements(audioMetrics) {
 
 export async function analyzeVerbiage({ promptText, responseText }) {
   const prompt = `
-Analyze this response for stronger verbiage. Return strict JSON with keys feedback and scores.
+Analyze this response for stronger verbiage.
 feedback must include summary, strengths array, improvements array, and highlights array.
-Each highlight must include text, reason, suggestion.
+Each highlight must include text, reason, and suggestion.
 Look for weak phrasing, repetition, filler, vague claims, and missed chances to sound engaging.
-scores must include confidence, clarity, engagement, pacing, wording from 0 to 100.
+scores must include confidence, clarity, engagement, pacing, and wording from 0 to 100.
 
 Prompt:
 ${promptText}
@@ -634,7 +819,15 @@ Response:
 ${responseText}
 `;
 
-  const generated = await callGemma(prompt);
+  const generated = await callGemma(prompt, {
+    temperature: 0.35,
+    maxOutputTokens: 850,
+    timeoutMs: 22000,
+    responseSchema: verbiageResponseSchema,
+    requiredKey: "feedback",
+    exampleOutput: "{\"feedback\":{\"summary\":\"Clear answer, but several phrases could be sharper.\",\"strengths\":[\"Answered the prompt\",\"Friendly tone\"],\"improvements\":[\"Replace vague words\",\"Trim filler\"],\"highlights\":[{\"text\":\"kind of\",\"reason\":\"Hedges your point.\",\"suggestion\":\"State the idea directly.\"}]},\"scores\":{\"confidence\":70,\"clarity\":74,\"engagement\":68,\"pacing\":75,\"wording\":65}}"
+  });
+
   return generated || {
     feedback: {
       summary: "The response is understandable, but it would sound stronger with more specific language and a cleaner closing idea.",
@@ -656,4 +849,3 @@ ${responseText}
     scores: { ...fallbackScores, wording: 70 }
   };
 }
-
