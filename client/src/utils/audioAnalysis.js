@@ -1,4 +1,4 @@
-export async function analyzeReadingAudio(blob, transcript) {
+export async function analyzeReadingAudio(blob, transcript, micCalibration = null) {
   const arrayBuffer = await blob.arrayBuffer();
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
@@ -28,22 +28,47 @@ export async function analyzeReadingAudio(blob, transcript) {
     const activeRmsAverage = average(activeWindows);
     const variation = standardDeviation(activeWindows, activeRmsAverage);
     const wordCount = countWords(transcript);
+    const speakingTimeSeconds = activeWindows.length * windowSeconds;
     const wordsPerMinute = durationSeconds > 0 ? Math.round((wordCount / durationSeconds) * 60) : 0;
+    const speakingWordsPerMinute = speakingTimeSeconds > 0 ? Math.round((wordCount / speakingTimeSeconds) * 60) : 0;
 
-    return {
+    return applyMicCalibration({
       durationSeconds: round(durationSeconds, 1),
-      speakingTimeSeconds: round(activeWindows.length * windowSeconds, 1),
+      speakingTimeSeconds: round(speakingTimeSeconds, 1),
       wordCount,
       wordsPerMinute,
+      speakingWordsPerMinute,
       averageVolumePercent: toPercent(activeRmsAverage),
       peakVolumePercent: toPercent(maxRms),
       volumeVariationPercent: toPercent(variation),
       pauseCount: pauses.length,
       longestPauseSeconds: round(Math.max(...pauses, 0), 1)
-    };
+    }, micCalibration);
   } finally {
     audioContext.close?.();
   }
+}
+
+export function applyMicCalibration(metrics, micCalibration) {
+  const baseline = Number(micCalibration?.averageVolumePercent || 0);
+  const target = Number(micCalibration?.targetVolumePercent || 60);
+
+  if (!metrics || !baseline || baseline <= 0) {
+    return metrics;
+  }
+
+  const factor = target / baseline;
+  return {
+    ...metrics,
+    micCalibration: {
+      averageVolumePercent: baseline,
+      targetVolumePercent: target,
+      volumeAdjustmentFactor: round(factor, 2)
+    },
+    normalizedAverageVolumePercent: clampPercent(Math.round(metrics.averageVolumePercent * factor)),
+    normalizedPeakVolumePercent: clampPercent(Math.round(metrics.peakVolumePercent * factor)),
+    normalizedVolumeVariationPercent: clampPercent(Math.round(metrics.volumeVariationPercent * factor))
+  };
 }
 
 function mixToMono(audioBuffer) {
@@ -116,6 +141,10 @@ function standardDeviation(values, mean) {
 
 function toPercent(value) {
   return Math.round(Math.min(100, Math.max(0, value * 280)));
+}
+
+function clampPercent(value) {
+  return Math.round(Math.min(100, Math.max(0, value)));
 }
 
 function round(value, decimals) {

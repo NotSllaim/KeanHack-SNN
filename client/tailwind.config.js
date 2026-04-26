@@ -1,4 +1,5 @@
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
     extend: {
@@ -7,12 +8,14 @@ export default {
       },
       colors: {
         ink: "#172026",
-        meadow: "#3f7d58",
-        coral: "#d56b52",
-        skyglass: "#d9ebf2"
+        meadow: "#A44200",
+        coral: "#69140E",
+        skyglass: "#F0D2AD",
+        ember: "#D58936",
+        wine: "#3C1518"
       },
       boxShadow: {
-        soft: "0 16px 42px rgba(23, 32, 38, 0.12)"
+        soft: "0 16px 42px rgba(60, 21, 24, 0.18)"
       }
     }
   },

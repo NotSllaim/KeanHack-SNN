@@ -804,7 +804,7 @@ function buildFallbackReply({ bot, userMessage, short, latestAssistant, reason }
 
   if (reason === "timeout") {
     return avoidRepeat(
-      `${bot.name === "Theo" ? "I caught the main idea" : "I am with you"}: ${extractedTopic}. Let's make that easier to respond to. What is the one point you most want me to ask about?`,
+      `${bot.id === "theo" ? "I caught the main idea" : "I am with you"}: ${extractedTopic}. Let's make that easier to respond to. What is the one point you most want me to ask about?`,
       latestAssistant,
       `There is a lot in that answer. Choose one thread for me: ${extractedTopic}, or something else you want to unpack?`
     );

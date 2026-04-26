@@ -27,5 +27,5 @@ export function LiveTranscriptPanel({ transcript, label = "Live transcript" }) {
 }
 
 function findFillers(text) {
-  return [...text.matchAll(/\b(uh|um|uhm|like|you know|sort of|kind of)\b/gi)].map((match) => match[0]);
+  return [...text.matchAll(/\b(uh|uhh|um|umm|uhm|like|you know|sort of|kind of)\b/gi)].map((match) => match[0]);
 }
