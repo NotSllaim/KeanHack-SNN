@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpenText, LayoutDashboard, LogOut, MessageCircle, Sparkles, TrendingUp } from "lucide-react";
+import { BookOpenText, LayoutDashboard, LogOut, MessageCircle, Moon, Sparkles, Sun, TrendingUp } from "lucide-react";
 import { AuthScreen } from "./components/AuthScreen.jsx";
 import { CompanionSurveyScreen } from "./components/CompanionSurveyScreen.jsx";
 import { ConversationPractice } from "./components/ConversationPractice.jsx";
@@ -25,17 +25,45 @@ export default function App() {
   const { user, loading, logout, updateUser } = useAuth();
   const [activeTab, setActiveTab] = React.useState("conversation");
   const [view, setView] = React.useState("home");
+  const [theme, setTheme] = React.useState(() => localStorage.getItem("lingo_theme") || "dark");
+  const isDark = theme === "dark";
+  const elementId = user?.profile?.companionElement?.id || "fire";
+
+  React.useEffect(() => {
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.dataset.element = elementId;
+    localStorage.setItem("lingo_theme", theme);
+  }, [elementId, isDark, theme]);
+
+  function toggleTheme() {
+    setTheme((currentTheme) => currentTheme === "dark" ? "light" : "dark");
+  }
 
   if (loading) {
-    return <div className="grid min-h-screen place-items-center bg-[#f7f5ef] text-ink">Loading Lingo...</div>;
+    return (
+      <>
+        <ThemeToggle isDark={isDark} onToggle={toggleTheme} floating />
+        <div className="grid min-h-screen place-items-center bg-[#f7f5ef] text-ink">Loading Lingo...</div>
+      </>
+    );
   }
 
   if (!user) {
-    return <AuthScreen />;
+    return (
+      <>
+        <ThemeToggle isDark={isDark} onToggle={toggleTheme} floating />
+        <AuthScreen />
+      </>
+    );
   }
 
   if (!user.profile?.companionElement?.name) {
-    return <CompanionSurveyScreen />;
+    return (
+      <>
+        <ThemeToggle isDark={isDark} onToggle={toggleTheme} floating />
+        <CompanionSurveyScreen />
+      </>
+    );
   }
 
   if (view === "dashboard") {
@@ -66,6 +94,7 @@ export default function App() {
       <header className="border-b border-stone-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
+            <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
             <img src={logo} alt="Lingo logo" className="h-14 w-14 object-contain" />
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold tracking-normal text-meadow">Lingo</h1>
@@ -151,6 +180,22 @@ export default function App() {
         </aside>
       </div>
     </main>
+  );
+}
+
+function ThemeToggle({ isDark, onToggle, floating = false }) {
+  const Icon = isDark ? Moon : Sun;
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`${floating ? "fixed left-5 top-5 z-50" : ""} inline-flex h-11 w-11 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-700 shadow-sm transition hover:border-meadow hover:text-meadow`}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      <Icon size={19} />
+    </button>
   );
 }
 

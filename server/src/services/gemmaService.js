@@ -124,6 +124,203 @@ function supportsThinkingBudget() {
   return configuredModel.includes("gemini-2.5");
 }
 
+function hasSnowflakeConfig() {
+  const hasAccount = Boolean(process.env.SNOWFLAKE_ACCOUNT);
+  const hasToken = Boolean(process.env.SNOWFLAKE_TOKEN);
+
+  if (!hasAccount || !hasToken) {
+    console.warn(`[Config Check] Snowflake config missing. SNOWFLAKE_ACCOUNT=${hasAccount} SNOWFLAKE_TOKEN=${hasToken}`);
+  }
+
+  return hasAccount && hasToken;
+}
+
+function getSnowflakeModel(options = {}) {
+  return options.model
+    || process.env.SNOWFLAKE_MODEL
+    || process.env.SNOWFLAKE_MODEL_CONVERSATION
+    || "openai-gpt-4.1";
+}
+
+async function callSnowflake(prompt, options = {}) {
+  const startedAt = Date.now();
+
+  if (!hasSnowflakeConfig()) {
+    return options.diagnostics
+      ? { parsed: null, rawText: "", latencyMs: 0, reason: "missing_config" }
+      : null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 16000);
+  const fullPrompt = buildJsonPrompt(prompt, options.exampleOutput);
+  const model = getSnowflakeModel(options);
+
+  try {
+    const response = await fetch(`https://${process.env.SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/inference:complete`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Authorization": `Bearer ${process.env.SNOWFLAKE_TOKEN}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "user",
+            content: fullPrompt
+          }
+        ],
+        temperature: options.temperature ?? 0.55,
+        max_tokens: options.maxOutputTokens
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      console.error(`Snowflake request failed (${response.status}):`, message);
+      return options.diagnostics
+        ? {
+            parsed: null,
+            rawText: "",
+            responsePreview: truncateText(message, 700),
+            finishReason: null,
+            promptFeedback: null,
+            latencyMs: Date.now() - startedAt,
+            reason: getSnowflakeErrorReason(response.status, message),
+            model
+          }
+        : null;
+    }
+
+    const responseText = await response.text();
+    const data = parseSnowflakeResponse(responseText);
+    const text = extractSnowflakeText(data, responseText);
+    const parsed = text ? parseGemmaJson(text, options.requiredKey) : null;
+
+    if (options.diagnostics) {
+      return {
+        parsed,
+        rawText: text || "",
+        responsePreview: truncateText(responseText, 700),
+        finishReason: data?.choices?.[0]?.finish_reason || data?.choices?.[0]?.finishReason || null,
+        promptFeedback: null,
+        latencyMs: Date.now() - startedAt,
+        reason: parsed ? "ok" : "invalid_json",
+        model
+      };
+    }
+
+    return parsed;
+  } catch (error) {
+    return options.diagnostics
+      ? {
+          parsed: null,
+          rawText: "",
+          responsePreview: "",
+          finishReason: null,
+          promptFeedback: null,
+          latencyMs: Date.now() - startedAt,
+          reason: error.name === "AbortError" ? "timeout" : "request_failed",
+          model
+        }
+      : null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function getSnowflakeErrorReason(status, message) {
+  if (status === 401 || status === 403) {
+    return "snowflake_auth";
+  }
+
+  if (status === 404 || /model/i.test(message)) {
+    return "snowflake_model";
+  }
+
+  if (status === 429 || /rate|quota|limit/i.test(message)) {
+    return "quota_exceeded";
+  }
+
+  return "request_failed";
+}
+
+function parseSnowflakeResponse(text) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (!trimmed.startsWith("data:")) {
+    try {
+      return JSON.parse(trimmed);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  const events = trimmed
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.replace(/^data:\s*/, "").trim())
+    .filter((line) => line && line !== "[DONE]")
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch (_error) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  return { events };
+}
+
+function extractSnowflakeText(data, rawText) {
+  if (!data) {
+    return rawText || "";
+  }
+
+  if (Array.isArray(data.events)) {
+    return data.events
+      .map((event) => {
+        const choice = event.choices?.[0];
+        return choice?.delta?.content
+          || choice?.message?.content
+          || choice?.text
+          || "";
+      })
+      .join("")
+      .trim();
+  }
+
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content
+    || choice?.delta?.content
+    || choice?.messages
+    || choice?.text
+    || data.text
+    || data.response
+    || "";
+
+  return typeof content === "string" ? content.trim() : JSON.stringify(content);
+}
+
+async function callAi(prompt, options = {}) {
+  if (process.env.AI_PROVIDER === "gemini") {
+    return callGemma(prompt, options);
+  }
+
+  if (hasSnowflakeConfig()) {
+    return callSnowflake(prompt, options);
+  }
+
+  return callGemma(prompt, options);
+}
+
 async function callGemma(prompt, options = {}) {
   const startedAt = Date.now();
 
@@ -451,11 +648,10 @@ ${latestUserMessage}
   let fallbackReason = "generic";
 
   try {
-    diagnostics = await callGemma(prompt, {
+    diagnostics = await callSnowflake(prompt, {
       temperature: 0.45,
       maxOutputTokens: 900,
       timeoutMs: 28000,
-      responseSchema: conversationResponseSchema,
       requiredKey: "botReply",
       diagnostics: true
     });
@@ -463,7 +659,7 @@ ${latestUserMessage}
     fallbackReason = diagnostics.reason === "ok" ? "generic" : diagnostics.reason;
   } catch (error) {
     fallbackReason = error.name === "AbortError" ? "timeout" : "generic";
-    console.warn(`Gemma conversation failed; using fallback: ${error.message}`);
+    console.warn(`Snowflake conversation failed; using fallback: ${error.message}`);
   }
 
   const promptChars = prompt.length;
@@ -472,10 +668,10 @@ ${latestUserMessage}
     ? {
         ...generated,
         aiDebug: {
-          source: "gemma",
+          source: "snowflake",
           reason: "ok",
           latencyMs: diagnostics?.latencyMs || null,
-          model: process.env.GEMMA_MODEL,
+          model: diagnostics?.model || getSnowflakeModel(),
           promptChars
         }
       }
@@ -484,7 +680,7 @@ ${latestUserMessage}
   result.aiDebug = {
     ...result.aiDebug,
     latencyMs: diagnostics?.latencyMs || null,
-    model: process.env.GEMMA_MODEL,
+    model: diagnostics?.model || getSnowflakeModel(),
     promptChars,
     rawPreview: process.env.AI_DEBUG === "true" && diagnostics?.rawText
       ? truncateText(diagnostics.rawText, 240)
@@ -493,7 +689,7 @@ ${latestUserMessage}
 
   if (process.env.AI_DEBUG === "true" || result.aiDebug.source === "fallback") {
     console.warn(
-      `[AI debug] source=${result.aiDebug.source} reason=${result.aiDebug.reason} latency=${result.aiDebug.latencyMs ?? "n/a"}ms promptChars=${promptChars} model=${process.env.GEMMA_MODEL || "unknown"}`
+      `[AI debug] source=${result.aiDebug.source} reason=${result.aiDebug.reason} latency=${result.aiDebug.latencyMs ?? "n/a"}ms promptChars=${promptChars} model=${result.aiDebug.model || "unknown"}`
     );
     if (result.aiDebug.rawPreview) {
       console.warn(`[AI raw preview] ${result.aiDebug.rawPreview}`);
@@ -579,7 +775,7 @@ ${transcript}
 ${metricsText}
 `;
 
-  const generated = await callGemma(prompt, {
+  const generated = await callAi(prompt, {
     temperature: 0.35,
     maxOutputTokens: 700,
     timeoutMs: 22000,
@@ -608,7 +804,7 @@ function buildFallbackReply({ bot, userMessage, short, latestAssistant, reason }
 
   if (reason === "timeout") {
     return avoidRepeat(
-      `${bot.name === "Theo" ? "I caught the main idea" : "I am with you"}: ${extractedTopic}. Let's make that easier to respond to. What is the one point you most want me to ask about?`,
+      `${bot.id === "theo" ? "I caught the main idea" : "I am with you"}: ${extractedTopic}. Let's make that easier to respond to. What is the one point you most want me to ask about?`,
       latestAssistant,
       `There is a lot in that answer. Choose one thread for me: ${extractedTopic}, or something else you want to unpack?`
     );
@@ -812,26 +1008,40 @@ function fallbackReadingImprovements(audioMetrics) {
   return improvements;
 }
 
-export async function analyzeVerbiage({ promptText, responseText }) {
+export async function analyzeVerbiage({ promptText, responseText, audioMetrics }) {
+  const metricsText = audioMetrics
+    ? `
+Measured audio delivery metrics:
+- Pace: ${audioMetrics.wordsPerMinute} words per minute
+- Average volume: ${audioMetrics.averageVolumePercent}/100
+- Normalized average volume: ${audioMetrics.normalizedAverageVolumePercent ?? audioMetrics.averageVolumePercent}/100
+- Volume variation: ${audioMetrics.volumeVariationPercent}/100
+- Normalized volume variation: ${audioMetrics.normalizedVolumeVariationPercent ?? audioMetrics.volumeVariationPercent}/100
+- Mic baseline: ${audioMetrics.micCalibration?.averageVolumePercent || "not calibrated"}/100 adjusted toward ${audioMetrics.micCalibration?.targetVolumePercent || 60}/100
+`
+    : "No calibrated audio metrics were provided. Focus primarily on wording.";
+
   const prompt = `
 Analyze this response for stronger verbiage.
 feedback must include summary, strengths array, improvements array, and highlights array.
 Each highlight must include text, reason, and suggestion.
 Look for weak phrasing, repetition, filler, vague claims, and missed chances to sound engaging.
 scores must include confidence, clarity, engagement, pacing, and wording from 0 to 100.
+If calibrated audio metrics are available, factor normalized volume into confidence and pacing feedback.
 
 Prompt:
 ${promptText}
 
 Response:
 ${responseText}
+
+${metricsText}
 `;
 
-  const generated = await callGemma(prompt, {
+  const generated = await callAi(prompt, {
     temperature: 0.35,
     maxOutputTokens: 850,
     timeoutMs: 22000,
-    responseSchema: verbiageResponseSchema,
     requiredKey: "feedback",
     exampleOutput: "{\"feedback\":{\"summary\":\"Clear answer, but several phrases could be sharper.\",\"strengths\":[\"Answered the prompt\",\"Friendly tone\"],\"improvements\":[\"Replace vague words\",\"Trim filler\"],\"highlights\":[{\"text\":\"kind of\",\"reason\":\"Hedges your point.\",\"suggestion\":\"State the idea directly.\"}]},\"scores\":{\"confidence\":70,\"clarity\":74,\"engagement\":68,\"pacing\":75,\"wording\":65}}"
   });
