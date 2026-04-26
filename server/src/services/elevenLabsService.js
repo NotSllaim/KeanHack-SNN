@@ -1,45 +1,81 @@
-function hasElevenLabsConfig() {
-  return Boolean(process.env.ELEVENLABS_API_KEY);
+function hasDeepgramConfig() {
+  return Boolean(process.env.DEEPGRAM_API_KEY);
 }
 
 export async function textToSpeech(text) {
-  if (!hasElevenLabsConfig()) {
-    return { audioBase64: null, contentType: null, demo: true };
+  if (!text?.trim()) {
+    return {
+      audioBase64: null,
+      contentType: null,
+      text: "",
+      provider: "deepgram",
+      fallbackReason: "No text was provided for speech",
+      demo: true
+    };
   }
 
-  const voiceId = process.env.ELEVENLABS_TTS_VOICE_ID;
-  if (!voiceId) {
-    throw new Error("ELEVENLABS_TTS_VOICE_ID is required for text to speech");
-  }
-
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "xi-api-key": process.env.ELEVENLABS_API_KEY
-    },
-    body: JSON.stringify({
+  if (!hasDeepgramConfig()) {
+    return {
+      audioBase64: null,
+      contentType: null,
       text,
-      model_id: process.env.ELEVENLABS_TTS_MODEL_ID || "eleven_multilingual_v2",
-      voice_settings: {
-        stability: 0.55,
-        similarity_boost: 0.75
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`ElevenLabs text to speech failed: ${message}`);
+      provider: "browser-speech",
+      fallbackReason: "Deepgram API key is not configured",
+      demo: true
+    };
   }
 
-  const contentType = response.headers.get("content-type") || "audio/mpeg";
-  const audioBuffer = Buffer.from(await response.arrayBuffer());
-  return { audioBase64: audioBuffer.toString("base64"), contentType, demo: false };
+  const model = process.env.DEEPGRAM_TTS_MODEL_ID || "aura-asteria-en";
+  const voice = process.env.DEEPGRAM_TTS_VOICE_ID || "default";
+
+  try {
+    const response = await fetch(`https://api.deepgram.com/v1/speak?model=${model}&encoding=mp3`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Token ${process.env.DEEPGRAM_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        text
+      })
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      console.warn(`Deepgram text to speech failed: ${message}`);
+      return {
+        audioBase64: null,
+        contentType: null,
+        text,
+        provider: "browser-speech",
+        fallbackReason: message,
+        demo: true
+      };
+    }
+
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    return {
+      audioBase64: audioBuffer.toString("base64"),
+      contentType: "audio/mpeg",
+      text,
+      provider: "deepgram",
+      demo: false
+    };
+  } catch (error) {
+    console.error("Deepgram TTS error:", error);
+    return {
+      audioBase64: null,
+      contentType: null,
+      text,
+      provider: "browser-speech",
+      fallbackReason: error.message,
+      demo: true
+    };
+  }
 }
 
 export async function speechToText(file) {
-  if (!hasElevenLabsConfig()) {
+  if (!process.env.ELEVENLABS_API_KEY) {
     return {
       text: "This is a demo transcript. Add your ElevenLabs API key to transcribe microphone audio.",
       demo: true
@@ -66,4 +102,3 @@ export async function speechToText(file) {
   const data = await response.json();
   return { text: data.text || "", demo: false };
 }
-
