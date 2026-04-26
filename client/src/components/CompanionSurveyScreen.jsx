@@ -127,7 +127,7 @@ export function CompanionSurveyScreen() {
 
     return (
       <main
-        className="relative h-screen overflow-hidden px-5 py-4 text-ink md:px-10 md:py-6"
+        className="companion-reveal relative h-screen overflow-hidden px-5 py-4 text-ink md:px-10 md:py-6"
         style={{ background: style.background }}
       >
         <div className="confetti-layer" aria-hidden="true">

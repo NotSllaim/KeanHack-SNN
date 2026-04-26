@@ -44,7 +44,7 @@ export function ReadingPractice() {
       const data = await api("/voice/transcribe", { method: "POST", body: formData });
       setTranscript(data.text);
       setLiveTranscript("");
-      const metrics = await analyzeReadingAudio(blob, data.text, user.profile?.micCalibration);
+      const metrics = await analyzeReadingAudio(blob, data.text, user?.profile?.micCalibration);
       setAudioMetrics(metrics);
     } catch (err) {
       setError(err.message);
@@ -69,6 +69,7 @@ export function ReadingPractice() {
       setScores(data.scores);
       setXpNotice(data.xp || null);
       updateUser(data.user);
+      notifyHistoryUpdated();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -143,6 +144,10 @@ export function ReadingPractice() {
       <FeedbackPanel feedback={feedback} scores={scores} />
     </section>
   );
+}
+
+function notifyHistoryUpdated() {
+  window.dispatchEvent(new Event("lingo:history-updated"));
 }
 
 function Metric({ label, value }) {

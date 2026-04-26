@@ -28,13 +28,16 @@ export async function analyzeReadingAudio(blob, transcript, micCalibration = nul
     const activeRmsAverage = average(activeWindows);
     const variation = standardDeviation(activeWindows, activeRmsAverage);
     const wordCount = countWords(transcript);
+    const speakingTimeSeconds = activeWindows.length * windowSeconds;
     const wordsPerMinute = durationSeconds > 0 ? Math.round((wordCount / durationSeconds) * 60) : 0;
+    const speakingWordsPerMinute = speakingTimeSeconds > 0 ? Math.round((wordCount / speakingTimeSeconds) * 60) : 0;
 
     return applyMicCalibration({
       durationSeconds: round(durationSeconds, 1),
-      speakingTimeSeconds: round(activeWindows.length * windowSeconds, 1),
+      speakingTimeSeconds: round(speakingTimeSeconds, 1),
       wordCount,
       wordsPerMinute,
+      speakingWordsPerMinute,
       averageVolumePercent: toPercent(activeRmsAverage),
       peakVolumePercent: toPercent(maxRms),
       volumeVariationPercent: toPercent(variation),

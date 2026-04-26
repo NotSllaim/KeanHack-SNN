@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { isSubscriptionActive } from "./subscription.js";
 import { buildProgress } from "./xp.js";
 
 export function signToken(user) {
@@ -13,6 +14,10 @@ export function signToken(user) {
 }
 
 export function publicUser(user) {
+  const tier = user.tier || "free";
+  const subscriptionExpiresAt = user.subscriptionExpiresAt || null;
+  const isActive = isSubscriptionActive(tier, subscriptionExpiresAt);
+
   return {
     id: user._id,
     name: user.name,
@@ -20,10 +25,11 @@ export function publicUser(user) {
     profile: user.profile,
     scores: user.scores,
     progress: buildProgress(user.progress?.xp),
-    upgraded: Boolean(user.upgraded),
-    upgradeWalletAddress: user.upgradeWalletAddress || null,
-    upgradeTransactionSignature: user.upgradeTransactionSignature || null,
-    upgradedAt: user.upgradedAt || null
+    tier,
+    walletAddress: user.walletAddress || null,
+    subscriptionExpiresAt,
+    paymentHistory: user.paymentHistory || [],
+    isActive
   };
 }
 

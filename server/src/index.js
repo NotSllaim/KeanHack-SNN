@@ -7,7 +7,9 @@ import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import conversationRoutes from "./routes/conversationRoutes.js";
 import historyRoutes from "./routes/historyRoutes.js";
+import meRoutes from "./routes/meRoutes.js";
 import readingRoutes from "./routes/readingRoutes.js";
+import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import verbiageRoutes from "./routes/verbiageRoutes.js";
 import voiceRoutes from "./routes/voiceRoutes.js";
 
@@ -15,6 +17,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: false });
 dotenv.config({ override: false });
+
+const SOLANA_REQUIRED_VARS = [
+  "HELIUS_DEVNET_RPC",
+  "MERCHANT_WALLET",
+  "USDC_MINT_DEVNET",
+  "SUBSCRIPTION_PRICE_USDC",
+  "SUBSCRIPTION_DURATION_DAYS"
+];
+const missingSolanaVars = SOLANA_REQUIRED_VARS.filter((k) => !process.env[k]);
+if (missingSolanaVars.length > 0) {
+  console.warn(
+    `[solana] missing env vars — subscription verification will reject requests: ${missingSolanaVars.join(", ")}`
+  );
+}
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -27,6 +43,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/me", meRoutes);
+app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/conversation", conversationRoutes);
 app.use("/api/reading", readingRoutes);
 app.use("/api/verbiage", verbiageRoutes);
