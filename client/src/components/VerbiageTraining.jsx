@@ -2,18 +2,20 @@ import { RefreshCw, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { useAuth } from "../state/AuthContext.jsx";
+import { analyzeReadingAudio } from "../utils/audioAnalysis.js";
 import { FeedbackPanel } from "./FeedbackPanel.jsx";
 import { LiveTranscriptPanel } from "./LiveTranscriptPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 export function VerbiageTraining() {
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [response, setResponse] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [recording, setRecording] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
+  const [audioMetrics, setAudioMetrics] = useState(null);
   const [xpNotice, setXpNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -26,6 +28,7 @@ export function VerbiageTraining() {
     setFeedback(null);
     setScores(null);
     setXpNotice(null);
+    setAudioMetrics(null);
   }
 
   useEffect(() => {
@@ -41,6 +44,8 @@ export function VerbiageTraining() {
       const data = await api("/voice/transcribe", { method: "POST", body: formData });
       setResponse(data.text);
       setLiveTranscript("");
+      const metrics = await analyzeReadingAudio(blob, data.text, user.profile?.micCalibration);
+      setAudioMetrics(metrics);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -58,7 +63,7 @@ export function VerbiageTraining() {
     try {
       const data = await api("/verbiage/analyze", {
         method: "POST",
-        body: JSON.stringify({ prompt, response })
+        body: JSON.stringify({ prompt, response, audioMetrics })
       });
       setFeedback(data.feedback);
       setScores(data.scores);

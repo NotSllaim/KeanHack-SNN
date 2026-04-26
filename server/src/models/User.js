@@ -36,7 +36,12 @@ const userSchema = new mongoose.Schema(
           lightning: { type: Number, default: 0 }
         }
       },
-      companionSurvey: mongoose.Schema.Types.Mixed
+      companionSurvey: mongoose.Schema.Types.Mixed,
+      micCalibration: {
+        averageVolumePercent: { type: Number, default: 0 },
+        targetVolumePercent: { type: Number, default: 60 },
+        normalizedAt: Date
+      }
     },
     scores: {
       confidenceAverage: { type: Number, default: 0 },

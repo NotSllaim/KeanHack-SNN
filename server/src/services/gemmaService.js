@@ -554,8 +554,12 @@ Measured audio delivery metrics:
 - Word count: ${audioMetrics.wordCount}
 - Pace: ${audioMetrics.wordsPerMinute} words per minute
 - Average volume: ${audioMetrics.averageVolumePercent}/100
+- Normalized average volume: ${audioMetrics.normalizedAverageVolumePercent ?? audioMetrics.averageVolumePercent}/100
 - Peak volume: ${audioMetrics.peakVolumePercent}/100
+- Normalized peak volume: ${audioMetrics.normalizedPeakVolumePercent ?? audioMetrics.peakVolumePercent}/100
 - Volume variation: ${audioMetrics.volumeVariationPercent}/100
+- Normalized volume variation: ${audioMetrics.normalizedVolumeVariationPercent ?? audioMetrics.volumeVariationPercent}/100
+- Mic baseline: ${audioMetrics.micCalibration?.averageVolumePercent || "not calibrated"}/100 adjusted toward ${audioMetrics.micCalibration?.targetVolumePercent || 60}/100
 - Pause count: ${audioMetrics.pauseCount}
 - Longest pause: ${audioMetrics.longestPauseSeconds}s
 `
@@ -565,7 +569,8 @@ Measured audio delivery metrics:
 Analyze this read-aloud practice response.
 Consider pacing, rushing, volume consistency, hesitation, smoothness, confidence, clarity, and flow.
 Use the measured audio metrics as direct evidence. A healthy reading pace is usually about 120-160 WPM.
-Very low average volume suggests the user may be too quiet. High volume variation suggests uneven delivery.
+When normalized volume metrics are available, use them instead of raw volume so feedback accounts for the user's mic calibration.
+Very low normalized average volume suggests the user may be too quiet. High normalized volume variation suggests uneven delivery.
 Frequent or long pauses suggest hesitation or difficulty with phrasing.
 feedback must include summary, strengths array, and improvements array.
 scores must include confidence, clarity, engagement, pacing, and wording from 0 to 100.
@@ -768,8 +773,8 @@ function scoreVolume(audioMetrics) {
     return 78;
   }
 
-  const volume = audioMetrics.averageVolumePercent || 0;
-  const variation = audioMetrics.volumeVariationPercent || 0;
+  const volume = audioMetrics.normalizedAverageVolumePercent || audioMetrics.averageVolumePercent || 0;
+  const variation = audioMetrics.normalizedVolumeVariationPercent || audioMetrics.volumeVariationPercent || 0;
   const volumeScore = volume >= 18 && volume <= 75 ? 84 : 66;
   const consistencyPenalty = variation > 18 ? 12 : 0;
   return Math.max(50, volumeScore - consistencyPenalty);
@@ -780,7 +785,8 @@ function fallbackReadingSummary(audioMetrics) {
     return "Your delivery was understandable. Record audio to get pace, volume, and pause feedback.";
   }
 
-  return `Your reading pace was ${audioMetrics.wordsPerMinute} WPM with an average volume of ${audioMetrics.averageVolumePercent}/100. Use that as your baseline while working toward a steady, clear read-aloud delivery.`;
+  const volume = audioMetrics.normalizedAverageVolumePercent || audioMetrics.averageVolumePercent;
+  return `Your reading pace was ${audioMetrics.wordsPerMinute} WPM with a calibrated average volume of ${volume}/100. Use that as your baseline while working toward a steady, clear read-aloud delivery.`;
 }
 
 function fallbackReadingImprovements(audioMetrics) {
@@ -797,9 +803,12 @@ function fallbackReadingImprovements(audioMetrics) {
     improvements.push("Keep practicing this steady pace range");
   }
 
-  if (audioMetrics.averageVolumePercent < 18) {
+  const volume = audioMetrics.normalizedAverageVolumePercent || audioMetrics.averageVolumePercent;
+  const variation = audioMetrics.normalizedVolumeVariationPercent || audioMetrics.volumeVariationPercent;
+
+  if (volume < 18) {
     improvements.push("Speak a little louder and project through the end of each sentence");
-  } else if (audioMetrics.volumeVariationPercent > 18) {
+  } else if (variation > 18) {
     improvements.push("Keep your volume more consistent between phrases");
   } else {
     improvements.push("Maintain your current volume consistency");
@@ -812,19 +821,34 @@ function fallbackReadingImprovements(audioMetrics) {
   return improvements;
 }
 
-export async function analyzeVerbiage({ promptText, responseText }) {
+export async function analyzeVerbiage({ promptText, responseText, audioMetrics }) {
+  const metricsText = audioMetrics
+    ? `
+Measured audio delivery metrics:
+- Pace: ${audioMetrics.wordsPerMinute} words per minute
+- Average volume: ${audioMetrics.averageVolumePercent}/100
+- Normalized average volume: ${audioMetrics.normalizedAverageVolumePercent ?? audioMetrics.averageVolumePercent}/100
+- Volume variation: ${audioMetrics.volumeVariationPercent}/100
+- Normalized volume variation: ${audioMetrics.normalizedVolumeVariationPercent ?? audioMetrics.volumeVariationPercent}/100
+- Mic baseline: ${audioMetrics.micCalibration?.averageVolumePercent || "not calibrated"}/100 adjusted toward ${audioMetrics.micCalibration?.targetVolumePercent || 60}/100
+`
+    : "No calibrated audio metrics were provided. Focus primarily on wording.";
+
   const prompt = `
 Analyze this response for stronger verbiage.
 feedback must include summary, strengths array, improvements array, and highlights array.
 Each highlight must include text, reason, and suggestion.
 Look for weak phrasing, repetition, filler, vague claims, and missed chances to sound engaging.
 scores must include confidence, clarity, engagement, pacing, and wording from 0 to 100.
+If calibrated audio metrics are available, factor normalized volume into confidence and pacing feedback.
 
 Prompt:
 ${promptText}
 
 Response:
 ${responseText}
+
+${metricsText}
 `;
 
   const generated = await callGemma(prompt, {

@@ -8,7 +8,7 @@ import { LiveTranscriptPanel } from "./LiveTranscriptPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 export function ReadingPractice() {
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [passage, setPassage] = useState(null);
   const [transcript, setTranscript] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -44,7 +44,7 @@ export function ReadingPractice() {
       const data = await api("/voice/transcribe", { method: "POST", body: formData });
       setTranscript(data.text);
       setLiveTranscript("");
-      const metrics = await analyzeReadingAudio(blob, data.text);
+      const metrics = await analyzeReadingAudio(blob, data.text, user.profile?.micCalibration);
       setAudioMetrics(metrics);
     } catch (err) {
       setError(err.message);

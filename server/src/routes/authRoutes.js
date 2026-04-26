@@ -83,6 +83,33 @@ router.post("/survey", requireAuth, async (req, res, next) => {
   }
 });
 
+router.post("/mic-calibration", requireAuth, async (req, res, next) => {
+  try {
+    const averageVolumePercent = Number(req.body.averageVolumePercent);
+    const targetVolumePercent = Number(req.body.targetVolumePercent || 60);
+
+    if (!Number.isFinite(averageVolumePercent) || averageVolumePercent <= 0) {
+      return res.status(400).json({ message: "A valid microphone volume is required" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        "profile.micCalibration": {
+          averageVolumePercent: Math.round(averageVolumePercent),
+          targetVolumePercent: Math.round(targetVolumePercent),
+          normalizedAt: new Date()
+        }
+      },
+      { new: true }
+    ).select("-passwordHash");
+
+    res.json({ user: publicUser(user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/upgrade", requireAuth, async (req, res, next) => {
   try {
     const { transactionSignature, walletAddress } = req.body;

@@ -1,5 +1,6 @@
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, Mic, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { api } from "../api.js";
 import { companionSurveyQuestions } from "../data/companionSurvey.js";
 import { useAuth } from "../state/AuthContext.jsx";
 import electricCreature from "../public/electric1.png";
@@ -55,6 +56,7 @@ export function CompanionSurveyScreen() {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState({});
   const [reveal, setReveal] = useState(null);
+  const [micCheck, setMicCheck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const question = companionSurveyQuestions[step];
@@ -107,6 +109,16 @@ export function CompanionSurveyScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (reveal && micCheck) {
+    return (
+      <MicCheckScreen
+        reveal={reveal}
+        onComplete={(updatedUser) => finishOnboarding(updatedUser)}
+        onSkip={() => finishOnboarding(reveal.user)}
+      />
+    );
   }
 
   if (reveal) {
@@ -166,10 +178,10 @@ export function CompanionSurveyScreen() {
 
           <button
             type="button"
-            onClick={() => finishOnboarding(reveal.user)}
+            onClick={() => setMicCheck(true)}
             className="mt-5 inline-flex h-12 items-center justify-center rounded-md bg-ink px-7 text-base font-bold text-white shadow-soft hover:bg-meadow md:mt-6 md:h-14 md:px-8 md:text-lg"
           >
-            Start practicing
+            Continue to mic check
           </button>
         </section>
       </main>
@@ -274,6 +286,162 @@ export function CompanionSurveyScreen() {
       </div>
     </main>
   );
+}
+
+function MicCheckScreen({ reveal, onComplete, onSkip }) {
+  const streamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const animationRef = useRef(null);
+  const samplesRef = useRef([]);
+  const [listening, setListening] = useState(false);
+  const [volume, setVolume] = useState(0);
+  const [normalized, setNormalized] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    return () => stopMic();
+  }, []);
+
+  async function startMic() {
+    setError("");
+    setNormalized(false);
+    samplesRef.current = [];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContextClass();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+
+      streamRef.current = stream;
+      audioContextRef.current = audioContext;
+      setListening(true);
+
+      const data = new Float32Array(analyser.fftSize);
+      const tick = () => {
+        analyser.getFloatTimeDomainData(data);
+        const rms = Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length);
+        const nextVolume = Math.round(Math.min(100, Math.max(0, rms * 280)));
+        setVolume(nextVolume);
+
+        if (nextVolume > 2) {
+          samplesRef.current = [...samplesRef.current.slice(-44), nextVolume];
+        }
+
+        animationRef.current = requestAnimationFrame(tick);
+      };
+
+      tick();
+    } catch (_err) {
+      setError("Microphone permission is needed for the mic check.");
+    }
+  }
+
+  function stopMic() {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    audioContextRef.current?.close?.();
+    audioContextRef.current = null;
+    setListening(false);
+  }
+
+  async function normalizeMic() {
+    const averageVolumePercent = average(samplesRef.current);
+    if (!averageVolumePercent) {
+      setError("Speak for a few seconds before normalizing.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      const data = await api("/auth/mic-calibration", {
+        method: "POST",
+        body: JSON.stringify({
+          averageVolumePercent,
+          targetVolumePercent: 60
+        })
+      });
+      setNormalized(true);
+      stopMic();
+      onComplete(data.user);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f7f5ef] px-5 py-8 text-ink">
+      <section className="w-full max-w-xl rounded-md border border-stone-200 bg-white p-6 text-center shadow-sm">
+        <p className="text-sm font-semibold text-meadow">One last setup step</p>
+        <h1 className="mt-2 text-3xl font-bold">Mic check for {reveal.name}</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-600">
+          Speak normally for a few seconds. The bar shows your current volume, and Normalize saves this as your baseline for Reading and Verbiage feedback.
+        </p>
+
+        <div className="mt-7 flex flex-col items-center gap-4">
+          <div className="grid h-20 w-20 place-items-center rounded-full bg-skyglass text-meadow">
+            <Mic size={38} />
+          </div>
+          <div className="h-5 w-full overflow-hidden rounded-full bg-stone-100">
+            <div
+              className="h-full rounded-full bg-meadow transition-all"
+              style={{ width: `${volume}%` }}
+            />
+          </div>
+          <p className="text-sm font-semibold text-stone-600">Volume: {volume}%</p>
+        </div>
+
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <button
+            type="button"
+            onClick={listening ? stopMic : startMic}
+            disabled={saving}
+            className="inline-flex h-11 items-center rounded-md border border-stone-200 bg-white px-4 font-semibold text-stone-700 hover:border-meadow disabled:opacity-60"
+          >
+            {listening ? "Stop mic" : "Start mic"}
+          </button>
+          <button
+            type="button"
+            onClick={normalizeMic}
+            disabled={saving || !samplesRef.current.length}
+            className="inline-flex h-11 items-center rounded-md bg-meadow px-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "Saving..." : normalized ? "Normalized" : "Normalize"}
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={saving}
+            className="inline-flex h-11 items-center rounded-md px-4 font-semibold text-stone-500 hover:text-ink disabled:opacity-60"
+          >
+            Skip
+          </button>
+        </div>
+
+        {error && <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      </section>
+    </main>
+  );
+}
+
+function average(values) {
+  if (!values.length) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function normalizeAnswers(answer) {

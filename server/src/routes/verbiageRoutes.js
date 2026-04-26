@@ -21,20 +21,21 @@ router.get("/prompt", requireAuth, (_req, res) => {
 
 router.post("/analyze", requireAuth, async (req, res, next) => {
   try {
-    const { prompt, response } = req.body;
+    const { prompt, response, audioMetrics } = req.body;
 
     if (!prompt || !response) {
       return res.status(400).json({ message: "Prompt and response are required" });
     }
 
-    const analysis = await analyzeVerbiage({ promptText: prompt, responseText: response });
+    const analysis = await analyzeVerbiage({ promptText: prompt, responseText: response, audioMetrics });
     const activity = await Activity.create({
       user: req.user._id,
       type: "verbiage",
       prompt,
       userResponse: response,
       feedback: analysis.feedback,
-      scores: analysis.scores
+      scores: analysis.scores,
+      metadata: { audioMetrics }
     });
 
     await refreshUserAverages(req.user._id);
