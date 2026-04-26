@@ -2,7 +2,9 @@ function hasDeepgramConfig() {
   return Boolean(process.env.DEEPGRAM_API_KEY);
 }
 
-let ttsFallbackReason = null;
+function hasElevenLabsTtsConfig() {
+  return Boolean(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_TTS_VOICE_ID);
+}
 
 const botVoiceModels = {
   sana: process.env.DEEPGRAM_TTS_SANA_MODEL_ID || "aura-2-athena-en",
@@ -23,17 +25,33 @@ export async function textToSpeech(text, options = {}) {
     };
   }
 
-  if (!hasDeepgramConfig()) {
-    return {
-      audioBase64: null,
-      contentType: null,
-      text,
-      provider: "browser-speech",
-      fallbackReason: "Deepgram API key is not configured",
-      demo: true
-    };
+  if (hasDeepgramConfig()) {
+    const deepgramResult = await deepgramTextToSpeech(text, options);
+    if (deepgramResult.audioBase64) {
+      return deepgramResult;
+    }
+    const elevenResult = await elevenLabsTextToSpeech(text);
+    if (elevenResult.audioBase64) {
+      return elevenResult;
+    }
+    return deepgramResult;
   }
 
+  if (hasElevenLabsTtsConfig()) {
+    return elevenLabsTextToSpeech(text);
+  }
+
+  return {
+    audioBase64: null,
+    contentType: null,
+    text,
+    provider: "browser-speech",
+    fallbackReason: "No TTS provider configured (set DEEPGRAM_API_KEY or ELEVENLABS_API_KEY)",
+    demo: true
+  };
+}
+
+async function deepgramTextToSpeech(text, options = {}) {
   const model = getDeepgramVoiceModel(options.botId);
 
   try {
@@ -43,9 +61,7 @@ export async function textToSpeech(text, options = {}) {
         "Authorization": `Token ${process.env.DEEPGRAM_API_KEY}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        text
-      })
+      body: JSON.stringify({ text })
     });
 
     if (!response.ok) {
@@ -72,6 +88,69 @@ export async function textToSpeech(text, options = {}) {
     };
   } catch (error) {
     console.error("Deepgram TTS error:", error);
+    return {
+      audioBase64: null,
+      contentType: null,
+      text,
+      provider: "browser-speech",
+      fallbackReason: error.message,
+      demo: true
+    };
+  }
+}
+
+async function elevenLabsTextToSpeech(text) {
+  if (!hasElevenLabsTtsConfig()) {
+    return {
+      audioBase64: null,
+      contentType: null,
+      text,
+      provider: "browser-speech",
+      fallbackReason: "ElevenLabs TTS is not configured",
+      demo: true
+    };
+  }
+
+  const voiceId = process.env.ELEVENLABS_TTS_VOICE_ID;
+  try {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key": process.env.ELEVENLABS_API_KEY
+      },
+      body: JSON.stringify({
+        text,
+        model_id: process.env.ELEVENLABS_TTS_MODEL_ID || "eleven_multilingual_v2",
+        voice_settings: { stability: 0.55, similarity_boost: 0.75 }
+      })
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      console.warn(`ElevenLabs text to speech failed: ${message}`);
+      return {
+        audioBase64: null,
+        contentType: null,
+        text,
+        provider: "browser-speech",
+        fallbackReason: message,
+        demo: true
+      };
+    }
+
+    const contentType = response.headers.get("content-type") || "audio/mpeg";
+    const audioBuffer = Buffer.from(await response.arrayBuffer());
+    return {
+      audioBase64: audioBuffer.toString("base64"),
+      contentType,
+      text,
+      provider: "elevenlabs",
+      voiceModel: voiceId,
+      demo: false
+    };
+  } catch (error) {
+    console.error("ElevenLabs TTS error:", error);
     return {
       audioBase64: null,
       contentType: null,

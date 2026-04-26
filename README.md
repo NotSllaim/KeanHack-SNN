@@ -10,28 +10,33 @@ A full-stack speech confidence practice app built for hackathon and portfolio us
 - MongoDB Atlas with Mongoose models
 - bcrypt password hashing and JWT authentication
 - Google Gemini/Gemma service wrapper for chat and feedback analysis
-- ElevenLabs service wrapper for text-to-speech and speech-to-text
+- Deepgram TTS (with ElevenLabs fallback) and ElevenLabs STT
 
 ## Setup
 
-1. Install dependencies:
+1. Install dependencies for the root, server, and client:
 
 ```bash
 npm install
-npm run install:all
+npm install --prefix server
+npm install --prefix client
 ```
 
-2. Copy `.env.example` to `.env` at the repository root and fill in the values.
+You can also run `npm run install:all` to do the server + client installs in one shot after `npm install`.
 
-3. Start the app:
+2. Copy `.env.example` to `.env` at the repo root and fill in the values.
+
+3. Start the app (runs server + client together):
 
 ```bash
 npm run dev
-# or
-npm start
 ```
 
-The client runs on `http://localhost:5173` and the API runs on `http://localhost:5000`.
+The client runs on `http://localhost:5173` and the API runs on the port set in `.env` (`PORT`).
+
+### macOS port note
+
+Do **not** use `PORT=5000`. macOS Control Center binds port 5000 (AirPlay Receiver) and you cannot kill it. Use `PORT=5001` (or another free port) and set `VITE_API_URL=http://localhost:5001/api` to match.
 
 ## Features
 
@@ -39,7 +44,7 @@ The client runs on `http://localhost:5173` and the API runs on `http://localhost
 - Full-screen 8-question post-signup survey that assigns each user a Fire, Water, Leaf, or Lightning companion element
 - User profiles, scores, activity history, and feedback stored in MongoDB Atlas
 - Live conversation practice with selectable AI personalities
-- Speech bubbles, AI thought bubbles, response scoring, and ElevenLabs TTS
+- Speech bubbles, AI thought bubbles, response scoring, and Deepgram TTS
 - Microphone recording with ElevenLabs transcription
 - Speech reading practice with passage analysis
 - Verbiage training with phrase-level feedback
