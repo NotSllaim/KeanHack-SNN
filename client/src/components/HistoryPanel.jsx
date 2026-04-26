@@ -50,20 +50,20 @@ export function HistoryPanel() {
         {activities.slice(0, 8).map((activity) => {
           const isExpanded = expandedId === activity._id;
           return (
-            <article key={activity._id} className="rounded-md border border-stone-200 bg-white p-3 transition hover:border-meadow/70">
+            <article key={activity._id} className="history-entry rounded-md border border-stone-200 p-3 transition hover:border-meadow/70">
               <button
                 type="button"
                 onClick={() => setExpandedId(isExpanded ? null : activity._id)}
                 className="w-full text-left"
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-ink">{labelFor(activity.type)}</span>
-                  <span className="flex items-center gap-2 text-xs text-stone-500">
+                  <span className="history-entry-title text-sm font-semibold">{labelFor(activity.type)}</span>
+                  <span className="history-entry-date flex items-center gap-2 text-xs">
                     {new Date(activity.createdAt).toLocaleDateString()}
                     {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
                   </span>
                 </div>
-                <p className="line-clamp-2 text-sm leading-6 text-stone-600">{briefDescription(activity)}</p>
+                <p className="history-entry-copy line-clamp-2 text-sm leading-6">{briefDescription(activity)}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
                   <ScorePill label="Confidence" value={activity.scores?.confidence || 0} kind="confidence" />
                   <ScorePill label="Clarity" value={activity.scores?.clarity || 0} kind="clarity" />
@@ -71,7 +71,7 @@ export function HistoryPanel() {
               </button>
 
               {isExpanded && (
-                <div className="mt-4 space-y-3 border-t border-stone-200 pt-4">
+                  <div className="history-entry-details mt-4 space-y-3 border-t border-stone-200 pt-4">
                   <DetailBlock title="What was said" text={activity.userResponse || "No transcript was saved for this activity."} />
                   <DetailBlock title="Why it was good" text={whyGood(activity)} />
                   <DetailBlock title="Improve next" text={improveNext(activity)} />
@@ -134,9 +134,9 @@ function improveNext(activity) {
 
 function DetailBlock({ title, text }) {
   return (
-    <div className="rounded-md bg-[#f7f5ef] p-3">
-      <p className="mb-1 text-xs font-bold uppercase text-stone-500">{title}</p>
-      <p className="text-sm leading-6 text-stone-700">{text}</p>
+    <div className="history-detail-block rounded-md p-3">
+      <p className="history-entry-date mb-1 text-xs font-bold uppercase">{title}</p>
+      <p className="history-entry-copy text-sm leading-6">{text}</p>
     </div>
   );
 }

@@ -179,6 +179,26 @@ textarea {
   color: var(--lingo-accent);
 }
 
+.history-entry {
+  background-color: color-mix(in srgb, var(--lingo-accent) 4%, white);
+}
+
+.history-entry-title {
+  color: var(--lingo-text);
+}
+
+.history-entry-copy {
+  color: var(--lingo-muted);
+}
+
+.history-entry-date {
+  color: color-mix(in srgb, var(--lingo-muted) 82%, var(--lingo-accent));
+}
+
+.history-detail-block {
+  background-color: color-mix(in srgb, var(--lingo-accent) 7%, white);
+}
+
 :root.dark .score-confidence-high {
   border-color: color-mix(in srgb, var(--lingo-accent) 72%, white);
   background-color: color-mix(in srgb, var(--lingo-accent) 24%, #050505);
@@ -189,6 +209,30 @@ textarea {
   border-color: color-mix(in srgb, var(--lingo-accent) 52%, white);
   background-color: color-mix(in srgb, var(--lingo-accent) 16%, #050505);
   color: color-mix(in srgb, var(--lingo-accent) 68%, white);
+}
+
+:root.dark .history-entry {
+  background-color: color-mix(in srgb, var(--lingo-bg) 78%, var(--lingo-accent) 22%) !important;
+}
+
+:root.dark .history-entry:hover {
+  background-color: color-mix(in srgb, var(--lingo-bg) 68%, var(--lingo-accent) 32%) !important;
+}
+
+:root.dark .history-entry-title {
+  color: color-mix(in srgb, var(--lingo-text) 92%, var(--lingo-accent));
+}
+
+:root.dark .history-entry-copy {
+  color: color-mix(in srgb, var(--lingo-text) 70%, var(--lingo-muted));
+}
+
+:root.dark .history-entry-date {
+  color: color-mix(in srgb, var(--lingo-accent) 58%, var(--lingo-muted));
+}
+
+:root.dark .history-detail-block {
+  background-color: color-mix(in srgb, var(--lingo-bg) 70%, var(--lingo-accent) 30%) !important;
 }
 
 .bg-meadow {
