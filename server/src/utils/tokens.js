@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { buildProgress } from "./xp.js";
 
 export function signToken(user) {
   return jwt.sign(
@@ -17,7 +18,8 @@ export function publicUser(user) {
     name: user.name,
     email: user.email,
     profile: user.profile,
-    scores: user.scores
+    scores: user.scores,
+    progress: buildProgress(user.progress?.xp)
   };
 }
 

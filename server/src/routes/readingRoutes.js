@@ -4,6 +4,8 @@ import { requireAuth } from "../middleware/auth.js";
 import { Activity } from "../models/Activity.js";
 import { analyzeReading } from "../services/gemmaService.js";
 import { refreshUserAverages } from "../utils/scoreAverages.js";
+import { publicUser } from "../utils/tokens.js";
+import { awardActivityXp } from "../utils/xp.js";
 
 const router = express.Router();
 
@@ -37,7 +39,17 @@ router.post("/analyze", requireAuth, async (req, res, next) => {
     });
 
     await refreshUserAverages(req.user._id);
-    res.json({ activityId: activity._id, ...analysis });
+    const xp = await awardActivityXp(req.user._id, "reading");
+    res.json({
+      activityId: activity._id,
+      ...analysis,
+      xp: {
+        awarded: xp.xpAwarded,
+        leveledUp: xp.leveledUp,
+        progress: xp.progress
+      },
+      user: publicUser(xp.user)
+    });
   } catch (error) {
     next(error);
   }

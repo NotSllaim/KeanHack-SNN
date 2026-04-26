@@ -43,6 +43,10 @@ const userSchema = new mongoose.Schema(
       clarityAverage: { type: Number, default: 0 },
       sessionsCompleted: { type: Number, default: 0 }
     },
+    progress: {
+      xp: { type: Number, default: 0 },
+      level: { type: Number, default: 1, min: 1, max: 3 }
+    },
     lastLoginAt: Date
   },
   { timestamps: true }

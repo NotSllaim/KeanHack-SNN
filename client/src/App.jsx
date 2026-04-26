@@ -7,6 +7,7 @@ import { HistoryPanel } from "./components/HistoryPanel.jsx";
 import { ReadingPractice } from "./components/ReadingPractice.jsx";
 import { ScoreCard } from "./components/ScoreCard.jsx";
 import { VerbiageTraining } from "./components/VerbiageTraining.jsx";
+import logo from "./public/logo.png";
 import { useAuth } from "./state/AuthContext.jsx";
 
 const tabs = [
@@ -14,6 +15,8 @@ const tabs = [
   { id: "reading", label: "Reading", icon: BookOpenText },
   { id: "verbiage", label: "Verbiage", icon: Sparkles }
 ];
+
+const companionImages = import.meta.glob("./public/*.png", { eager: true, import: "default" });
 
 export default function App() {
   const { user, loading, logout } = useAuth();
@@ -41,9 +44,9 @@ export default function App() {
     <main className="min-h-screen bg-[#f7f5ef]">
       <header className="border-b border-stone-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-meadow">Lingo Confidence Coach</p>
-            <h1 className="text-2xl font-bold tracking-normal text-ink">Practice that feels like a real conversation.</h1>
+          <div className="flex items-center gap-3">
+            <img src={logo} alt="Lingo logo" className="h-14 w-14 object-contain" />
+            <h1 className="text-3xl font-bold tracking-normal text-meadow">Lingo</h1>
           </div>
           <div className="flex items-center gap-3">
             <div className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm">
@@ -52,8 +55,8 @@ export default function App() {
             </div>
             {user.profile?.companionElement?.name && (
               <div className="rounded-md border border-stone-200 bg-white px-3 py-2 text-sm">
-                <span className="text-stone-500">Element</span>
-                <span className="ml-2 font-semibold text-meadow">{user.profile.companionElement.name}</span>
+                <span className="text-stone-500">Level</span>
+                <span className="ml-2 font-semibold text-meadow">{user.progress?.level || 1}</span>
               </div>
             )}
             <button
@@ -102,15 +105,65 @@ export default function App() {
             ]}
           />
           {user.profile?.companionElement && (
-            <section className="rounded-md border border-stone-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-meadow">Companion Element</p>
-              <h2 className="mt-1 text-2xl font-bold text-ink">{user.profile.companionElement.name}</h2>
-              <p className="mt-2 text-sm leading-6 text-stone-600">{user.profile.companionElement.description}</p>
-            </section>
+            <CompanionProgressPanel
+              element={user.profile.companionElement}
+              progress={user.progress}
+            />
           )}
           <HistoryPanel />
         </aside>
       </div>
     </main>
   );
+}
+
+function CompanionProgressPanel({ element, progress = {} }) {
+  const level = progress.level || 1;
+  const isMax = level >= (progress.maxLevel || 3);
+  const image = getCompanionImage(element.id, level);
+
+  return (
+    <section className="rounded-md border border-stone-200 bg-white p-5 shadow-sm">
+      <p className="text-center text-sm font-semibold text-meadow">Companion Progress</p>
+      {image && (
+        <div className="mt-3 flex justify-center">
+          <img
+            src={image}
+            alt={`${element.name} companion level ${level}`}
+            className="h-32 w-32 object-contain"
+          />
+        </div>
+      )}
+      <div className="mt-3 text-center">
+        <h2 className="text-2xl font-bold text-ink">{element.name}</h2>
+        <p className="mt-1 text-sm font-semibold text-stone-600">
+          Level {level}{isMax ? " - Max" : ""}
+        </p>
+      </div>
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between text-sm">
+          <span className="font-medium text-stone-700">XP</span>
+          <span className="font-bold text-ink">
+            {isMax
+              ? `${progress.xp || 0} total`
+              : `${progress.xpIntoLevel || 0}/${progress.xpForLevel || 100}`}
+          </span>
+        </div>
+        <div className="h-3 rounded-full bg-stone-100">
+          <div
+            className="h-3 rounded-full bg-meadow transition-all"
+            style={{ width: `${progress.progressPercent || 0}%` }}
+          />
+        </div>
+        <p className="mt-2 text-xs text-stone-500">
+          {isMax ? "Your companion is fully evolved." : `${(progress.nextLevelXp || 100) - (progress.xp || 0)} XP until the next stage.`}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function getCompanionImage(elementId, level) {
+  const baseName = elementId === "lightning" ? "electric" : elementId;
+  return companionImages[`./public/${baseName}${level}.png`] || companionImages[`./public/${baseName}1.png`];
 }

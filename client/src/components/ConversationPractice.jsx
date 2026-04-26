@@ -1,12 +1,14 @@
 import { Bot, Radio, Send, Square, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, playAudio } from "../api.js";
+import { useAuth } from "../state/AuthContext.jsx";
 import { FeedbackPanel } from "./FeedbackPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 const fallbackOpening = "Pick a conversation partner and tell me what has been on your mind lately.";
 
 export function ConversationPractice() {
+  const { updateUser } = useAuth();
   const [bots, setBots] = useState([]);
   const [botId, setBotId] = useState("sana");
   const [messages, setMessages] = useState([
@@ -20,6 +22,8 @@ export function ConversationPractice() {
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
   const [aiDebug, setAiDebug] = useState(null);
+  const [xpNotice, setXpNotice] = useState(null);
+  const [conversationReport, setConversationReport] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const messagesRef = useRef(messages);
@@ -44,10 +48,11 @@ export function ConversationPractice() {
     setMessages([{ role: "assistant", content: selectedBot.opener || fallbackOpening }]);
     setFeedback(null);
     setScores(null);
+    setConversationReport(null);
   }, [botId, selectedBot, liveActive]);
 
   useEffect(() => {
-    return () => stopLiveChat();
+    return () => stopLiveChat({ showReport: false });
   }, []);
 
   async function submitMessage(message, options = {}) {
@@ -61,6 +66,7 @@ export function ConversationPractice() {
     messagesRef.current = nextMessages;
     setInput("");
     setAiDebug(null);
+    setConversationReport(null);
     setBusy(true);
     setError("");
 
@@ -79,6 +85,8 @@ export function ConversationPractice() {
       setFeedback({ ...data.feedback, thoughtBubble: data.thoughtBubble });
       setScores(data.scores);
       setAiDebug(data.aiDebug || null);
+      setXpNotice(data.xp || null);
+      updateUser(data.user);
       if (options.speak) {
         setLivePhase("ai-speaking");
         await playAudio(data.speech);
@@ -90,7 +98,7 @@ export function ConversationPractice() {
     } catch (err) {
       setError(err.message);
       if (options.continueLive) {
-        stopLiveChat();
+        stopLiveChat({ showReport: false });
       }
     } finally {
       setBusy(false);
@@ -130,6 +138,8 @@ export function ConversationPractice() {
     setFeedback(null);
     setScores(null);
     setAiDebug(null);
+    setXpNotice(null);
+    setConversationReport(null);
     setError("");
     setMessages(openingMessages);
     messagesRef.current = openingMessages;
@@ -147,7 +157,7 @@ export function ConversationPractice() {
       }
     } catch (err) {
       setError(err.message);
-      stopLiveChat();
+      stopLiveChat({ showReport: false });
     } finally {
       setBusy(false);
     }
@@ -167,6 +177,7 @@ export function ConversationPractice() {
     setLivePhase("listening");
     setLiveTranscript("");
     setLiveFinalTranscript("");
+    liveFinalTranscriptRef.current = "";
 
     recognition.onresult = (event) => {
       let finalText = "";
@@ -223,7 +234,8 @@ export function ConversationPractice() {
     liveFinalTranscriptRef.current = liveFinalTranscript;
   }, [liveFinalTranscript]);
 
-  function stopLiveChat() {
+  function stopLiveChat({ showReport = true } = {}) {
+    const report = showReport ? buildConversationReport(messagesRef.current) : null;
     liveActiveRef.current = false;
     setLiveActive(false);
     setLivePhase("idle");
@@ -231,6 +243,9 @@ export function ConversationPractice() {
     setLiveFinalTranscript("");
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+    if (report) {
+      setConversationReport(report);
+    }
   }
 
   const liveText = liveTranscript || liveFinalTranscript;
@@ -368,6 +383,12 @@ export function ConversationPractice() {
             AI fallback used: {aiDebug.reason}. Check the server terminal for `[AI debug]` details.
           </div>
         )}
+        {xpNotice && (
+          <div className="rounded-md border border-meadow bg-green-50 px-3 py-2 text-sm font-semibold text-meadow">
+            +{xpNotice.awarded} XP{xpNotice.leveledUp ? " - companion leveled up" : ""}
+          </div>
+        )}
+        {conversationReport && <ConversationReport report={conversationReport} />}
         {feedback?.thoughtBubble && (
           <div className="inline-flex items-center gap-2 rounded-md bg-orange-50 px-3 py-2 text-sm text-stone-700">
             <Volume2 size={16} className="text-coral" />
@@ -381,7 +402,7 @@ export function ConversationPractice() {
 }
 
 function findFillers(text) {
-  return [...text.matchAll(/\b(uh|um|like|you know|sort of|kind of)\b/gi)].map((match) => match[0]);
+  return [...text.matchAll(/\b(uh|um|uhm|like|you know|sort of|kind of)\b/gi)].map((match) => match[0]);
 }
 
 function formatLivePhase(phase) {
@@ -391,5 +412,142 @@ function formatLivePhase(phase) {
     listening: "Listening",
     thinking: "Thinking"
   }[phase] || phase;
+}
+
+function buildConversationReport(messages) {
+  const userTurns = messages.filter((message) => message.role === "user");
+  if (!userTurns.length) {
+    return null;
+  }
+
+  const notes = [];
+  const fillerInstances = [];
+  let positiveAdds = 0;
+
+  userTurns.forEach((turn, index) => {
+    const text = turn.content || "";
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const fillers = findFillers(text);
+    const previousAssistant = findPreviousAssistant(messages, turn);
+    const offTrack = previousAssistant && !hasTopicOverlap(previousAssistant.content, text);
+    const askedQuestion = /[?]|\b(what|how|why|when|where|who|which)\b/i.test(text);
+    const addedDetail = words.length >= 14;
+
+    fillers.forEach((word) => {
+      fillerInstances.push({ word, turn: index + 1 });
+    });
+
+    if (fillers.length) {
+      notes.push(`Turn ${index + 1}: ${fillers.length} filler word${fillers.length === 1 ? "" : "s"} (${fillers.join(", ")}).`);
+    }
+
+    if (words.length < 8) {
+      notes.push(`Turn ${index + 1}: the response was very short, so it gave the other person less to build on.`);
+    }
+
+    if (offTrack) {
+      notes.push(`Turn ${index + 1}: this may have drifted from what the bot asked. Try answering the prompt first, then adding your own detail.`);
+    }
+
+    if (!askedQuestion && !addedDetail) {
+      notes.push(`Turn ${index + 1}: you could add something positive by giving a detail, asking a follow-up, or naming how you felt.`);
+    } else {
+      positiveAdds += 1;
+    }
+  });
+
+  const totalWords = userTurns.reduce((sum, turn) => sum + turn.content.trim().split(/\s+/).filter(Boolean).length, 0);
+  const fillerPenalty = Math.min(30, fillerInstances.length * 5);
+  const shortPenalty = userTurns.filter((turn) => turn.content.trim().split(/\s+/).filter(Boolean).length < 8).length * 8;
+  const contributionScore = Math.round((positiveAdds / userTurns.length) * 100);
+  const score = Math.max(40, Math.min(100, contributionScore - fillerPenalty - shortPenalty + 12));
+
+  return {
+    score,
+    totalTurns: userTurns.length,
+    totalWords,
+    fillerInstances,
+    notes: notes.length ? notes : ["You kept the conversation moving without obvious filler-heavy or very short turns."],
+    positiveAdds
+  };
+}
+
+function findPreviousAssistant(messages, userTurn) {
+  const index = messages.indexOf(userTurn);
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    if (messages[cursor].role === "assistant") {
+      return messages[cursor];
+    }
+  }
+  return null;
+}
+
+function hasTopicOverlap(prompt = "", response = "") {
+  const promptWords = significantWords(prompt);
+  const responseWords = significantWords(response);
+
+  if (!promptWords.length || !responseWords.length) {
+    return true;
+  }
+
+  return responseWords.some((word) => promptWords.includes(word));
+}
+
+function significantWords(text) {
+  const stopWords = new Set([
+    "about", "after", "again", "could", "would", "there", "their", "thing", "things", "that", "this", "with",
+    "what", "when", "where", "which", "your", "you", "the", "and", "for", "are", "was", "were", "how", "why"
+  ]);
+
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3 && !stopWords.has(word));
+}
+
+function ConversationReport({ report }) {
+  return (
+    <section className="rounded-md border border-stone-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-meadow">Conversation report</p>
+          <h3 className="text-xl font-bold text-ink">Final score: {report.score}/100</h3>
+        </div>
+        <div className="rounded-md bg-skyglass px-3 py-2 text-sm font-semibold text-ink">
+          {report.totalTurns} turns · {report.totalWords} words
+        </div>
+      </div>
+
+      <div className="mb-4 h-3 rounded-full bg-stone-100">
+        <div className="h-3 rounded-full bg-meadow" style={{ width: `${report.score}%` }} />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-md border border-stone-200 bg-[#f7f5ef] p-3">
+          <p className="text-xs font-bold uppercase text-stone-500">Filler count</p>
+          <p className="mt-1 text-2xl font-bold text-ink">{report.fillerInstances.length}</p>
+          <p className="mt-1 text-sm text-stone-600">
+            {report.fillerInstances.length
+              ? report.fillerInstances.map((item) => `${item.word} (turn ${item.turn})`).join(", ")
+              : "No obvious filler words caught."}
+          </p>
+        </div>
+        <div className="rounded-md border border-stone-200 bg-[#f7f5ef] p-3">
+          <p className="text-xs font-bold uppercase text-stone-500">Positive additions</p>
+          <p className="mt-1 text-2xl font-bold text-ink">{report.positiveAdds}/{report.totalTurns}</p>
+          <p className="mt-1 text-sm text-stone-600">Turns that added detail, asked a question, or gave the bot something useful to respond to.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {report.notes.map((note, index) => (
+          <p key={`${note}-${index}`} className="rounded-md border border-stone-200 px-3 py-2 text-sm text-stone-700">
+            {note}
+          </p>
+        ))}
+      </div>
+    </section>
+  );
 }
 

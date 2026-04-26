@@ -5,6 +5,8 @@ import { Activity } from "../models/Activity.js";
 import { generateConversationTurn } from "../services/gemmaService.js";
 import { textToSpeech } from "../services/elevenLabsService.js";
 import { refreshUserAverages } from "../utils/scoreAverages.js";
+import { publicUser } from "../utils/tokens.js";
+import { awardActivityXp } from "../utils/xp.js";
 
 const router = express.Router();
 
@@ -38,6 +40,7 @@ router.post("/turn", requireAuth, async (req, res, next) => {
     });
 
     await refreshUserAverages(req.user._id);
+    const xp = await awardActivityXp(req.user._id, "conversation");
 
     res.json({
       activityId: activity._id,
@@ -46,7 +49,13 @@ router.post("/turn", requireAuth, async (req, res, next) => {
       feedback: turn.feedback,
       scores: turn.scores,
       aiDebug: turn.aiDebug,
-      speech
+      speech,
+      xp: {
+        awarded: xp.xpAwarded,
+        leveledUp: xp.leveledUp,
+        progress: xp.progress
+      },
+      user: publicUser(xp.user)
     });
   } catch (error) {
     next(error);

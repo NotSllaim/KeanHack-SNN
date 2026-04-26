@@ -47,13 +47,19 @@ export function AuthProvider({ children }) {
     setUser(updatedUser);
   }
 
+  function updateUser(updatedUser) {
+    if (updatedUser) {
+      setUser(updatedUser);
+    }
+  }
+
   function logout() {
     setToken(null);
     setUser(null);
   }
 
   const value = useMemo(
-    () => ({ user, loading, signup, login, completeSurvey, finishOnboarding, logout }),
+    () => ({ user, loading, signup, login, completeSurvey, finishOnboarding, updateUser, logout }),
     [user, loading]
   );
 

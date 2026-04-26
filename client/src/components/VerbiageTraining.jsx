@@ -1,17 +1,20 @@
 import { RefreshCw, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { useAuth } from "../state/AuthContext.jsx";
 import { FeedbackPanel } from "./FeedbackPanel.jsx";
 import { LiveTranscriptPanel } from "./LiveTranscriptPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 export function VerbiageTraining() {
+  const { updateUser } = useAuth();
   const [prompt, setPrompt] = useState("");
   const [response, setResponse] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [recording, setRecording] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
+  const [xpNotice, setXpNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,6 +25,7 @@ export function VerbiageTraining() {
     setLiveTranscript("");
     setFeedback(null);
     setScores(null);
+    setXpNotice(null);
   }
 
   useEffect(() => {
@@ -58,6 +62,8 @@ export function VerbiageTraining() {
       });
       setFeedback(data.feedback);
       setScores(data.scores);
+      setXpNotice(data.xp || null);
+      updateUser(data.user);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -124,6 +130,11 @@ export function VerbiageTraining() {
       )}
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {xpNotice && (
+        <div className="rounded-md border border-meadow bg-green-50 px-3 py-2 text-sm font-semibold text-meadow">
+          +{xpNotice.awarded} XP{xpNotice.leveledUp ? " - companion leveled up" : ""}
+        </div>
+      )}
       <FeedbackPanel feedback={feedback} scores={scores} />
     </section>
   );

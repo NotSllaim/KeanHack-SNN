@@ -1,12 +1,14 @@
 import { RefreshCw, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
+import { useAuth } from "../state/AuthContext.jsx";
 import { analyzeReadingAudio } from "../utils/audioAnalysis.js";
 import { FeedbackPanel } from "./FeedbackPanel.jsx";
 import { LiveTranscriptPanel } from "./LiveTranscriptPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 export function ReadingPractice() {
+  const { updateUser } = useAuth();
   const [passage, setPassage] = useState(null);
   const [transcript, setTranscript] = useState("");
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -14,6 +16,7 @@ export function ReadingPractice() {
   const [audioMetrics, setAudioMetrics] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [scores, setScores] = useState(null);
+  const [xpNotice, setXpNotice] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -25,6 +28,7 @@ export function ReadingPractice() {
     setAudioMetrics(null);
     setFeedback(null);
     setScores(null);
+    setXpNotice(null);
   }
 
   useEffect(() => {
@@ -63,6 +67,8 @@ export function ReadingPractice() {
       });
       setFeedback(data.feedback);
       setScores(data.scores);
+      setXpNotice(data.xp || null);
+      updateUser(data.user);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -129,6 +135,11 @@ export function ReadingPractice() {
       )}
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {xpNotice && (
+        <div className="rounded-md border border-meadow bg-green-50 px-3 py-2 text-sm font-semibold text-meadow">
+          +{xpNotice.awarded} XP{xpNotice.leveledUp ? " - companion leveled up" : ""}
+        </div>
+      )}
       <FeedbackPanel feedback={feedback} scores={scores} />
     </section>
   );
