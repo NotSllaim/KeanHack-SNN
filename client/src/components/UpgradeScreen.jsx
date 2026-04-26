@@ -31,6 +31,8 @@ import {
   getAssociatedTokenAddress
 } from "@solana/spl-token";
 
+import { api } from "../api.js";
+
 import "@solana/wallet-adapter-react-ui/styles.css";
 
 const SUBSCRIPTION_DURATION_DAYS = 30;
@@ -149,6 +151,7 @@ function UpgradeContent({ onBack }) {
     setSignature(null);
     setPayState("preparing");
 
+    let sig = null;
     try {
       const merchantPubkey = new PublicKey(MERCHANT_WALLET_RAW);
       const mintPubkey = new PublicKey(USDC_MINT_RAW);
@@ -194,7 +197,7 @@ function UpgradeContent({ onBack }) {
       const signed = await signTransaction(tx);
 
       setPayState("submitting");
-      const sig = await connection.sendRawTransaction(signed.serialize(), {
+      sig = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,
         preflightCommitment: "confirmed"
       });
@@ -220,12 +223,34 @@ function UpgradeContent({ onBack }) {
         "[upgrade] explorer:",
         `https://explorer.solana.com/tx/${sig}?cluster=devnet`
       );
+    } catch (err) {
+      console.error("[upgrade] payment error:", err);
+      setErrorMessage(err?.message || "Payment failed");
+      setPayState("error");
+      return;
+    }
+
+    setPayState("verifying");
+    try {
+      const verifyResp = await api("/subscription/verify", {
+        method: "POST",
+        body: JSON.stringify({
+          signature: sig,
+          walletAddress: publicKey.toBase58()
+        })
+      });
+      if (!verifyResp?.valid) {
+        throw new Error(verifyResp?.reason || "Backend reported invalid");
+      }
+      console.log("[upgrade] backend verified:", verifyResp.details);
       setSignature(sig);
       setPayState("success");
     } catch (err) {
-      console.error("[upgrade] payment error:", err);
-      const message = err?.message || "Payment failed";
-      setErrorMessage(message);
+      console.error("[upgrade] verification error:", err);
+      const reason = err?.message || "Unknown error";
+      setErrorMessage(
+        `Payment was on-chain but backend verification failed: ${reason}`
+      );
       setPayState("error");
     }
   }
@@ -239,9 +264,11 @@ function UpgradeContent({ onBack }) {
           ? "Submitting..."
           : payState === "confirming"
             ? "Confirming on-chain..."
-            : configOk
-              ? `Pay ${PRICE} USDC`
-              : "Pay";
+            : payState === "verifying"
+              ? "Verifying with server..."
+              : configOk
+                ? `Pay ${PRICE} USDC`
+                : "Pay";
 
   const payDisabled = !configOk || payState !== "idle";
 
