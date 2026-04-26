@@ -115,7 +115,7 @@ export function CompanionSurveyScreen() {
 
     return (
       <main
-        className="relative min-h-screen overflow-hidden px-5 py-8 text-ink md:px-10"
+        className="relative h-screen overflow-hidden px-5 py-4 text-ink md:px-10 md:py-6"
         style={{ background: style.background }}
       >
         <div className="confetti-layer" aria-hidden="true">
@@ -136,15 +136,15 @@ export function CompanionSurveyScreen() {
           <div className="sunburst" style={{ "--burst-color": style.accent }} />
         </div>
 
-        <section className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl flex-col items-center justify-center text-center">
-          <p className="mb-3 text-sm font-bold uppercase tracking-normal" style={{ color: style.accent }}>
+        <section className="relative z-10 mx-auto flex h-full max-w-6xl flex-col items-center justify-center text-center">
+          <p className="mb-2 text-sm font-bold uppercase tracking-normal" style={{ color: style.accent }}>
             Your companion has arrived
           </p>
-          <h1 className="text-5xl font-bold leading-tight tracking-normal md:text-7xl">
+          <h1 className="text-4xl font-bold leading-tight tracking-normal md:text-6xl">
             {reveal.name}
           </h1>
 
-          <div className="relative my-7 flex h-[310px] w-[310px] items-center justify-center md:h-[430px] md:w-[430px]">
+          <div className="relative my-4 flex h-[min(38vh,360px)] w-[min(38vh,360px)] items-center justify-center md:my-5 md:h-[min(42vh,400px)] md:w-[min(42vh,400px)]">
             <div
               className="absolute inset-10 rounded-full blur-3xl"
               style={{ backgroundColor: style.glow }}
@@ -160,14 +160,14 @@ export function CompanionSurveyScreen() {
             <Sparkles className="sparkle sparkle-three absolute text-white drop-shadow" size={28} />
           </div>
 
-          <p className="max-w-2xl text-xl font-semibold leading-8 text-stone-700 md:text-2xl">
+          <p className="max-w-2xl text-base font-semibold leading-7 text-stone-700 md:text-xl md:leading-8">
             {reveal.description}
           </p>
 
           <button
             type="button"
             onClick={() => finishOnboarding(reveal.user)}
-            className="mt-8 inline-flex h-14 items-center justify-center rounded-md bg-ink px-8 text-lg font-bold text-white shadow-soft hover:bg-meadow"
+            className="mt-5 inline-flex h-12 items-center justify-center rounded-md bg-ink px-7 text-base font-bold text-white shadow-soft hover:bg-meadow md:mt-6 md:h-14 md:px-8 md:text-lg"
           >
             Start practicing
           </button>
