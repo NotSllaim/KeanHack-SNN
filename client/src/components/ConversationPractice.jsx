@@ -8,6 +8,9 @@ import { FeedbackPanel } from "./FeedbackPanel.jsx";
 import { RecorderButton } from "./RecorderButton.jsx";
 
 const fallbackOpening = "Pick a conversation partner and tell me what has been on your mind lately.";
+const LIVE_TURN_SILENCE_MS = 2600;
+const LIVE_TURN_MAX_MS = 60000;
+const LIVE_TURN_NO_SPEECH_MS = 15000;
 
 export function ConversationPractice() {
   const { user, updateUser } = useAuth();
@@ -37,6 +40,8 @@ export function ConversationPractice() {
   const liveStreamRef = useRef(null);
   const liveChunksRef = useRef([]);
   const liveTurnAnalyticsRef = useRef([]);
+  const liveSilenceTimerRef = useRef(null);
+  const liveTurnLimitTimerRef = useRef(null);
   const selectedBot = bots.find((bot) => bot.id === botId);
 
   useEffect(() => {
@@ -231,6 +236,13 @@ export function ConversationPractice() {
     }
   }
 
+  function clearLiveTurnTimers() {
+    window.clearTimeout(liveSilenceTimerRef.current);
+    window.clearTimeout(liveTurnLimitTimerRef.current);
+    liveSilenceTimerRef.current = null;
+    liveTurnLimitTimerRef.current = null;
+  }
+
   async function startListening() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition || !liveActiveRef.current) {
@@ -247,14 +259,38 @@ export function ConversationPractice() {
     }
 
     const recognition = new SpeechRecognition();
+    let shouldSubmitTurn = false;
+    let restartAttempts = 0;
     recognitionRef.current = recognition;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
     setLivePhase("listening");
     setLiveTranscript("");
     setLiveFinalTranscript("");
     liveFinalTranscriptRef.current = "";
+
+    function finishTurn() {
+      if (!liveActiveRef.current || shouldSubmitTurn) {
+        return;
+      }
+
+      shouldSubmitTurn = true;
+      clearLiveTurnTimers();
+      try {
+        recognition.stop();
+      } catch (_err) {
+        recognition.onend?.();
+      }
+    }
+
+    function scheduleTurnFinish(timeout = LIVE_TURN_SILENCE_MS) {
+      window.clearTimeout(liveSilenceTimerRef.current);
+      liveSilenceTimerRef.current = window.setTimeout(finishTurn, timeout);
+    }
+
+    scheduleTurnFinish(LIVE_TURN_NO_SPEECH_MS);
+    liveTurnLimitTimerRef.current = window.setTimeout(finishTurn, LIVE_TURN_MAX_MS);
 
     recognition.onresult = (event) => {
       let finalText = "";
@@ -269,12 +305,15 @@ export function ConversationPractice() {
         }
       }
 
-      setLiveTranscript(`${finalText} ${interimText}`.trim());
+      const nextLiveFinal = finalText.trim()
+        ? `${liveFinalTranscriptRef.current} ${finalText}`.trim()
+        : liveFinalTranscriptRef.current;
+      setLiveTranscript(`${nextLiveFinal} ${interimText}`.trim());
       if (finalText.trim()) {
-        const nextFinalTranscript = `${liveFinalTranscriptRef.current} ${finalText}`.trim();
-        liveFinalTranscriptRef.current = nextFinalTranscript;
-        setLiveFinalTranscript(nextFinalTranscript);
+        liveFinalTranscriptRef.current = nextLiveFinal;
+        setLiveFinalTranscript(nextLiveFinal);
       }
+      scheduleTurnFinish();
     };
 
     recognition.onerror = (event) => {
@@ -284,14 +323,35 @@ export function ConversationPractice() {
     };
 
     recognition.onend = async () => {
+      if (!liveActiveRef.current) {
+        clearLiveTurnTimers();
+        recognitionRef.current = null;
+        return;
+      }
+
+      if (!shouldSubmitTurn && restartAttempts < 3) {
+        restartAttempts += 1;
+        window.setTimeout(() => {
+          if (!liveActiveRef.current || shouldSubmitTurn) {
+            return;
+          }
+
+          try {
+            recognition.start();
+            recognitionRef.current = recognition;
+          } catch (_err) {
+            shouldSubmitTurn = true;
+            recognition.onend?.();
+          }
+        }, 180);
+        return;
+      }
+
+      clearLiveTurnTimers();
       const browserTranscript = liveFinalTranscriptRef.current.trim();
       recognitionRef.current = null;
       setLivePhase("transcribing");
       const blob = await stopTurnRecording(recorder);
-
-      if (!liveActiveRef.current) {
-        return;
-      }
 
       let finalMessage = browserTranscript;
       let audioMetrics = null;
@@ -348,6 +408,7 @@ export function ConversationPractice() {
     setLivePhase("idle");
     setLiveTranscript("");
     setLiveFinalTranscript("");
+    clearLiveTurnTimers();
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     stopTurnRecording(liveRecorderRef.current);
