@@ -95,6 +95,7 @@ export function ConversationPractice() {
       setScores(data.scores);
       setAiDebug(data.aiDebug || null);
       setXpNotice(data.xp || null);
+      console.log("[scores debug] turn scores:", data.scores, "user.scores:", data.user?.scores);
       updateUser(data.user);
       if (options.speak) {
         setLivePhase("ai-speaking");
