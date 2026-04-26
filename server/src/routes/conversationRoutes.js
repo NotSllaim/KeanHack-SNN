@@ -14,14 +14,14 @@ router.get("/bots", requireAuth, (_req, res) => {
 
 router.post("/turn", requireAuth, async (req, res, next) => {
   try {
-    const { botId = "mira", history = [], message } = req.body;
+    const { botId = "sana", history = [], message, includeSpeech = false } = req.body;
 
     if (!message?.trim()) {
       return res.status(400).json({ message: "Message is required" });
     }
 
     const turn = await generateConversationTurn({ botId, history, userMessage: message });
-    const speech = await textToSpeech(turn.botReply);
+    const speech = includeSpeech ? await textToSpeech(turn.botReply, { botId }) : null;
 
     const activity = await Activity.create({
       user: req.user._id,
@@ -45,6 +45,7 @@ router.post("/turn", requireAuth, async (req, res, next) => {
       thoughtBubble: turn.thoughtBubble,
       feedback: turn.feedback,
       scores: turn.scores,
+      aiDebug: turn.aiDebug,
       speech
     });
   } catch (error) {

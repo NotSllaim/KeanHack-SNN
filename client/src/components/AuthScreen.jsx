@@ -95,7 +95,10 @@ export function AuthScreen() {
 
           <button
             type="button"
-            onClick={() => setMode(mode === "signup" ? "login" : "signup")}
+            onClick={() => {
+              setMode(mode === "signup" ? "login" : "signup");
+              setError("");
+            }}
             className="text-sm font-semibold text-meadow hover:text-ink"
           >
             {mode === "signup" ? "Already have an account? Log in" : "Need an account? Sign up"}

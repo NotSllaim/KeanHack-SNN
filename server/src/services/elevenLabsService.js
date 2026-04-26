@@ -2,7 +2,16 @@ function hasDeepgramConfig() {
   return Boolean(process.env.DEEPGRAM_API_KEY);
 }
 
-export async function textToSpeech(text) {
+let ttsFallbackReason = null;
+
+const botVoiceModels = {
+  sana: process.env.DEEPGRAM_TTS_SANA_MODEL_ID || "aura-2-athena-en",
+  theo: process.env.DEEPGRAM_TTS_THEO_MODEL_ID || "aura-2-orpheus-en",
+  jax: process.env.DEEPGRAM_TTS_JAX_MODEL_ID || "aura-2-apollo-en",
+  mira: process.env.DEEPGRAM_TTS_MIRA_MODEL_ID || "aura-2-vesta-en"
+};
+
+export async function textToSpeech(text, options = {}) {
   if (!text?.trim()) {
     return {
       audioBase64: null,
@@ -25,8 +34,7 @@ export async function textToSpeech(text) {
     };
   }
 
-  const model = process.env.DEEPGRAM_TTS_MODEL_ID || "aura-asteria-en";
-  const voice = process.env.DEEPGRAM_TTS_VOICE_ID || "default";
+  const model = getDeepgramVoiceModel(options.botId);
 
   try {
     const response = await fetch(`https://api.deepgram.com/v1/speak?model=${model}&encoding=mp3`, {
@@ -59,6 +67,7 @@ export async function textToSpeech(text) {
       contentType: "audio/mpeg",
       text,
       provider: "deepgram",
+      voiceModel: model,
       demo: false
     };
   } catch (error) {
@@ -72,6 +81,10 @@ export async function textToSpeech(text) {
       demo: true
     };
   }
+}
+
+function getDeepgramVoiceModel(botId) {
+  return botVoiceModels[botId] || process.env.DEEPGRAM_TTS_MODEL_ID || "aura-2-arcas-en";
 }
 
 export async function speechToText(file) {

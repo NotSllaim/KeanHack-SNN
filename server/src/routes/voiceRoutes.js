@@ -25,7 +25,7 @@ router.post("/speak", requireAuth, async (req, res, next) => {
       return res.status(400).json({ message: "Text is required" });
     }
 
-    res.json(await textToSpeech(req.body.text));
+    res.json(await textToSpeech(req.body.text, { botId: req.body.botId }));
   } catch (error) {
     next(error);
   }
