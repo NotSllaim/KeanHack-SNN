@@ -93,7 +93,7 @@ export default function App() {
             <img src={logo} alt="Lingo logo" className="h-14 w-14 object-contain" />
             <div className="flex items-center gap-2">
               <h1 className="text-3xl font-bold tracking-normal text-meadow">Lingo</h1>
-              {user.tier === "pro" && (
+              {user.isActive && (
                 <span className="rounded-md bg-meadow px-2 py-1 text-xs font-bold text-white">
                   UPGRADED
                 </span>

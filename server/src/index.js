@@ -19,7 +19,6 @@ dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: false 
 dotenv.config({ override: false });
 
 const SOLANA_REQUIRED_VARS = [
-  "HELIUS_DEVNET_RPC",
   "MERCHANT_WALLET",
   "USDC_MINT_DEVNET",
   "SUBSCRIPTION_PRICE_USDC",

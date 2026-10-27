@@ -21,6 +21,7 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   Transaction,
+  TransactionInstruction,
   clusterApiUrl
 } from "@solana/web3.js";
 import {
@@ -40,9 +41,9 @@ const SUBSCRIPTION_DURATION_DAYS = 30;
 const USDC_DECIMALS = 6;
 
 const PRO_FEATURES = [
-  "Full access to Pro features",
-  "Priority support",
-  "Cancel anytime"
+  "Devnet payment verification",
+  "Time-limited Pro status on your dashboard",
+  "Practice remains available to all signed-in users"
 ];
 
 const MERCHANT_WALLET_RAW = import.meta.env.VITE_MERCHANT_WALLET;
@@ -102,7 +103,7 @@ function UpgradeContent({ onBack }) {
   const { connection } = useConnection();
   const { publicKey, connected, connecting, disconnect, signTransaction } =
     useWallet();
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [balance, setBalance] = useState(null);
   const [balanceError, setBalanceError] = useState(null);
 
@@ -155,6 +156,9 @@ function UpgradeContent({ onBack }) {
 
     let sig = null;
     try {
+      if (await connection.getGenesisHash() !== "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG") {
+        throw new Error("This demonstration only supports Solana Devnet.");
+      }
       const merchantPubkey = new PublicKey(MERCHANT_WALLET_RAW);
       const mintPubkey = new PublicKey(USDC_MINT_RAW);
       const amount = BigInt(Math.round(PRICE * 10 ** USDC_DECIMALS));
@@ -190,6 +194,12 @@ function UpgradeContent({ onBack }) {
       tx.add(
         createTransferInstruction(userAta, merchantAta, publicKey, amount)
       );
+      // Bind this signed payment to the account, not just a public wallet address.
+      tx.add(new TransactionInstruction({
+        keys: [{ pubkey: publicKey, isSigner: true, isWritable: false }],
+        programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+        data: Buffer.from(`lingo:subscription:${user.id}`, "utf8")
+      }));
 
       const latestBlockhash = await connection.getLatestBlockhash();
       tx.recentBlockhash = latestBlockhash.blockhash;
@@ -296,17 +306,17 @@ function UpgradeContent({ onBack }) {
       <section className="mx-auto max-w-3xl px-5 py-8">
         <div className="rounded-md border border-stone-200 bg-white p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-            Pro plan
+            Solana devnet demonstration
           </p>
           <h2 className="mt-1 text-2xl font-bold text-ink">Upgrade to Pro</h2>
           <p className="mt-2 text-sm text-stone-600">
-            Your subscription is paid in USDC on Solana. It costs{" "}
+            Use test USDC on Solana Devnet only. The demo costs{" "}
             <span className="font-semibold text-ink">{priceLabel} USDC</span>{" "}
             for{" "}
             <span className="font-semibold text-ink">
               {SUBSCRIPTION_DURATION_DAYS} days
             </span>{" "}
-            of Pro access.
+            of Pro status. No real payment or paid support is provided.
           </p>
 
           <div className="mt-5 rounded-md border border-stone-200 bg-skyglass/30 p-4">

@@ -6,13 +6,6 @@ function hasElevenLabsTtsConfig() {
   return Boolean(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_TTS_VOICE_ID);
 }
 
-const botVoiceModels = {
-  sana: process.env.DEEPGRAM_TTS_SANA_MODEL_ID || "aura-2-athena-en",
-  theo: process.env.DEEPGRAM_TTS_THEO_MODEL_ID || "aura-2-orpheus-en",
-  jax: process.env.DEEPGRAM_TTS_JAX_MODEL_ID || "aura-2-apollo-en",
-  mira: process.env.DEEPGRAM_TTS_MIRA_MODEL_ID || "aura-2-vesta-en"
-};
-
 export async function textToSpeech(text, options = {}) {
   if (!text?.trim()) {
     return {
@@ -163,6 +156,13 @@ async function elevenLabsTextToSpeech(text) {
 }
 
 function getDeepgramVoiceModel(botId) {
+  // Read at request time: index.js loads dotenv after ESM imports are evaluated.
+  const botVoiceModels = {
+    sana: process.env.DEEPGRAM_TTS_SANA_MODEL_ID || "aura-2-athena-en",
+    theo: process.env.DEEPGRAM_TTS_THEO_MODEL_ID || "aura-2-orpheus-en",
+    jax: process.env.DEEPGRAM_TTS_JAX_MODEL_ID || "aura-2-apollo-en",
+    mira: process.env.DEEPGRAM_TTS_MIRA_MODEL_ID || "aura-2-vesta-en"
+  };
   return botVoiceModels[botId] || process.env.DEEPGRAM_TTS_MODEL_ID || "aura-2-arcas-en";
 }
 

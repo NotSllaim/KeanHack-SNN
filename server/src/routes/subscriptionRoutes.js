@@ -27,7 +27,8 @@ router.post("/verify", requireAuth, async (req, res) => {
   try {
     result = await verifyUsdcPayment({
       signature,
-      expectedSenderWallet: walletAddress
+      expectedSenderWallet: walletAddress,
+      expectedUserId: String(req.user._id)
     });
   } catch (err) {
     console.error("[subscription/verify] unexpected verification error:", err);
