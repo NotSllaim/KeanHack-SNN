@@ -3,55 +3,53 @@ import { publicUser } from "../utils/tokens.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-export async function applyVerifiedPayment({
-  userId,
-  signature,
-  walletAddress,
-  verificationDetails
-}) {
-  const user = await User.findById(userId);
-  if (!user) throw new Error("USER_NOT_FOUND");
-
-  const alreadyUsed = (user.paymentHistory || []).some(
-    (entry) => entry.signature === signature
-  );
-  if (alreadyUsed) throw new Error("DUPLICATE_SIGNATURE");
-
-  const durationDays = Number.parseInt(
-    process.env.SUBSCRIPTION_DURATION_DAYS,
-    10
-  );
-  if (!Number.isFinite(durationDays) || durationDays <= 0) {
+export async function applyVerifiedPayment({ userId, signature, walletAddress, verificationDetails }) {
+  const durationDays = Number(process.env.SUBSCRIPTION_DURATION_DAYS);
+  const priceUsdc = Number(process.env.SUBSCRIPTION_PRICE_USDC);
+  if (!Number.isSafeInteger(durationDays) || durationDays <= 0) {
     throw new Error("SUBSCRIPTION_DURATION_DAYS env var is missing or invalid");
   }
-  const priceUsdc = Number.parseFloat(process.env.SUBSCRIPTION_PRICE_USDC);
   if (!Number.isFinite(priceUsdc) || priceUsdc <= 0) {
     throw new Error("SUBSCRIPTION_PRICE_USDC env var is missing or invalid");
   }
+  if (!signature || verificationDetails?.sender !== walletAddress ||
+      verificationDetails?.userId !== String(userId) ||
+      verificationDetails?.amount !== priceUsdc) {
+    throw new Error("INVALID_VERIFICATION_DETAILS");
+  }
 
-  const now = new Date();
-  const currentExpiry = user.subscriptionExpiresAt
-    ? new Date(user.subscriptionExpiresAt)
-    : null;
-  const isCurrentlyActive = currentExpiry && currentExpiry.getTime() > now.getTime();
-  const baseTime = isCurrentlyActive ? currentExpiry.getTime() : now.getTime();
-  const newExpiry = new Date(baseTime + durationDays * MS_PER_DAY);
-
-  user.tier = "pro";
-  user.walletAddress = walletAddress;
-  user.subscriptionExpiresAt = newExpiry;
-  user.paymentHistory.push({
-    signature,
-    amount: priceUsdc,
-    currency: "USDC",
-    paidAt: new Date()
-  });
-
-  await user.save();
-
-  console.log(
-    `[subscription] applied payment user=${user._id} sig=${signature.slice(0, 8)}... expires=${newExpiry.toISOString()} renewal=${isCurrentlyActive}`
-  );
-
+  // Fail closed until the global unique-signature index exists. Existing
+  // cross-account duplicates must be reviewed before enabling this flow.
+  await User.init();
+  let user;
+  try {
+    user = await User.findOneAndUpdate(
+      { _id: userId, "paymentHistory.signature": { $ne: signature } },
+      [{ $set: {
+        tier: "pro",
+        walletAddress: { $literal: walletAddress },
+        subscriptionExpiresAt: { $add: [
+          { $cond: [
+            { $and: [
+              { $eq: ["$tier", "pro"] },
+              { $gt: ["$subscriptionExpiresAt", "$$NOW"] }
+            ] },
+            "$subscriptionExpiresAt",
+            "$$NOW"
+          ] },
+          durationDays * MS_PER_DAY
+        ] },
+        paymentHistory: { $concatArrays: [
+          { $ifNull: ["$paymentHistory", []] },
+          [{ signature: { $literal: signature }, amount: priceUsdc, currency: "USDC", paidAt: "$$NOW" }]
+        ] }
+      } }],
+      { new: true }
+    );
+  } catch (error) {
+    if (error.code === 11000) throw new Error("DUPLICATE_SIGNATURE");
+    throw error;
+  }
+  if (!user) throw new Error("DUPLICATE_SIGNATURE");
   return publicUser(user);
 }

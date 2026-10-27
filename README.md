@@ -1,219 +1,146 @@
-# Lingo
+# Lingo — AI-Powered Speech Confidence Coach
 
-An AI-powered speech confidence coach. Practice live conversations, read passages aloud, and rehearse short prompts — Lingo scores your delivery, gives you actionable feedback, and grows an elemental companion alongside you.
+**Second place at KeanUHackThis · Built by a three-person team in 24 hours.**
 
-Built at KeanHack with Snowflake Cortex as the default LLM provider, plus a tasteful Solana devnet integration for Pro subscriptions.
+Lingo helps people rehearse conversations, read aloud, and practice clearer word choice. A React interface connects to an Express API for feedback, saved practice history, and an elemental companion that grows with practice.
 
----
+## A look inside
 
-## What it does
+Actual local screenshots using a sample account and typed practice text. **API keys were disabled: replies and scores below are deterministic demo output, not live AI evaluations or evidence of learning outcomes.** The growth snapshot and history show only this sample account's completed exercises.
 
-- **Live Conversation Practice** — Talk to one of five AI personas (Sana, Theo, Jax, Mira, Arcas), each with a distinct Deepgram voice. The model returns the next turn, a "thought bubble" of what your partner is thinking, plus per-turn scores.
-- **Reading Practice** — Read a passage aloud; the AI grades pacing, clarity, and pronunciation against the source text.
-- **Verbiage Training** — Short prompts that ask you to tell a one-minute story or explain a concept. You get phrase-level feedback on filler words, hedging, and structure.
-- **Companion System** — An 8-question survey assigns you a Fire, Water, Leaf, or Lightning companion. The companion levels up (1 → 3) as you earn XP, and the entire UI re-themes around its element.
-- **Light / Dark Mode** — Element-aware theming in both modes.
-- **Solana Pro Tier** — Optional 0.1 USDC payment on devnet (via Phantom + Helius RPC) verified server-side before the tier is upgraded.
+**Conversation practice:** choose a partner, respond, and review feedback alongside companion progress.
 
----
+![Conversation practice, deterministic feedback, and companion progress](docs/screenshots/conversation.jpg)
 
-## Stack
+**Reading feedback:** review a passage and transcript, then see feedback and saved practice history. This example uses pasted text; no microphone measurements were collected.
 
-| Layer | Tech |
-| --- | --- |
-| Frontend | React 18, Vite 6, Tailwind CSS, Lucide icons |
-| Backend | Node.js, Express 4, ESM, `node --watch` |
-| Database | MongoDB Atlas + Mongoose |
-| Auth | JWT + bcrypt |
-| LLM (primary) | **Snowflake Cortex** (`openai-gpt-4.1`) |
-| LLM (fallback) | Google Gemini / Gemma |
-| Speech-to-text | ElevenLabs Scribe |
-| Text-to-speech | Deepgram Aura 2 (per-persona voices) |
-| Wallet / Pay | Solana web3.js, SPL Token, Phantom wallet adapter, Helius devnet RPC |
+![Reading practice with a pasted transcript and deterministic feedback](docs/screenshots/reading-feedback.jpg)
 
----
+## Features
+
+- **Conversation practice:** four partners (Sarah, Ben, Jack, and Emma), typed responses, recorded audio, and a browser-dependent hands-free mode.
+- **Reading and word-choice practice:** built-in passages and prompts, transcript-based feedback, and phrase notes. Recorded reading/verbiage can also use browser-measured pace, volume variation, and pauses.
+- **Progress and personalization:** JWT login, MongoDB activity history and score averages, an eight-question companion survey, XP, three companion levels, and element-aware light/dark themes.
+- **Account dashboard:** profile and account status. All speech-practice activities are available to signed-in users; no payment is required.
 
 ## Architecture
 
-```
-client/  (React + Vite, port 5173)
-   ├─ AuthContext  ──────────────  JWT in localStorage
-   ├─ Practice screens  ─────────  POST /api/{conversation,reading,verbiage}
-   ├─ RecorderButton  ───────────  POST /api/voice (ElevenLabs STT)
-   └─ SolanaUpgrade  ────────────  POST /api/subscription/verify
-
-server/  (Express, port 5001 by default)
-   ├─ /api/auth        signup, login, /me, /survey
-   ├─ /api/conversation   live chat turn + scoring
-   ├─ /api/reading        passage + transcript analysis
-   ├─ /api/verbiage       prompt + response analysis
-   ├─ /api/voice          STT (multipart upload)
-   ├─ /api/history        per-user activity log
-   ├─ /api/me             profile, subscription
-   ├─ /api/subscription   USDC tx verification on Solana devnet
-   └─ /api/cortex         direct Cortex passthrough
-
-services/
-   ├─ gemmaService     Snowflake Cortex first → Gemma fallback → local fallback
-   ├─ snowflakeSqlService   raw Cortex SQL helper
-   ├─ elevenLabsService    STT
-   └─ solanaVerification   on-chain USDC transfer check (mint, amount, recipient)
+```text
+React 18 + Vite + Tailwind (localhost:5173)
+  ├─ Practice, history, companion, account screens
+  ├─ Browser audio capture / analysis and optional speech recognition
+  └─ HTTP API + JWT in localStorage
+          ↓
+Node.js + Express (localhost:5000 by default)
+  ├─ Authentication: bcrypt + JWT
+  ├─ Practice services: provider requests or local demo feedback
+  ├─ MongoDB / Mongoose: User and Activity documents
+  └─ Devnet subscription verification + atomic payment history update
 ```
 
-The AI router (`server/src/services/gemmaService.js`) tries Snowflake Cortex first if `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_TOKEN` are set; falls back to Gemini if `GEMMA_API_KEY` is set; and falls back to a local deterministic stub otherwise. This means the UI works end-to-end before any API keys are wired up — useful for demos.
+`client/src/components/` contains the screens; `server/src/routes/` exposes the API; `server/src/services/` handles AI, voice, and payment verification. Local audio analysis lives in `client/src/utils/audioAnalysis.js`.
 
----
+| API | Purpose |
+| --- | --- |
+| `GET /api/health` | Health check |
+| `POST /api/auth/signup`, `/login` | Create an account / sign in |
+| `GET /api/auth/me`; `POST /api/auth/survey`, `/mic-calibration` | Profile and onboarding |
+| `GET /api/conversation/bots`; `POST /api/conversation/turn` | Conversation practice |
+| `GET /api/reading/passage`; `POST /api/reading/analyze` | Reading practice |
+| `GET /api/verbiage/prompt`; `POST /api/verbiage/analyze` | Word-choice practice |
+| `POST /api/voice/transcribe`, `/speak` | Recorded-audio transcription / speech output |
+| `GET /api/history`; `GET /api/me/subscription` | Saved activities / subscription status |
+| `POST /api/subscription/verify` | Verify an account-bound devnet payment |
 
-## Quick start
+All routes except health, signup, and login require authentication. `server/src/routes/cortex.js` and `snowflakeSqlService.js` are unused prototype files: `/api/cortex` is **not mounted**, and the running app does not need `snowflake-sdk`.
 
-### Prerequisites
+## Local setup
 
-- Node.js 20+ (for `node --watch`)
-- A free MongoDB Atlas cluster
-- API keys for whichever providers you want (Snowflake Cortex, ElevenLabs, Deepgram). All optional — the app falls back gracefully.
+Use **Node.js 24** (validated with 24.14.1) and a local MongoDB instance. No paid API or hosted database is needed for typed demo practice.
 
-### Install
-
-```bash
+```sh
 git clone https://github.com/NotSllaim/KeanHack-SNN.git
 cd KeanHack-SNN
-npm install
-npm run install:all      # installs server + client
+npm ci
+npm ci --prefix server
+npm ci --prefix client
 ```
 
-### Configure
+The existing `npm run install:all` command is also available after installing root dependencies; it runs `npm install` in both subprojects.
 
-```bash
-cp .env.example .env
-```
+1. Copy `.env.example` to `.env` (`cp .env.example .env`, or `Copy-Item .env.example .env` in PowerShell).
+2. Start local MongoDB and set `MONGODB_URI` to a local/development database. The example uses `mongodb://127.0.0.1:27017/lingo_dev`.
+3. Replace `JWT_SECRET` with a random local secret. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+4. Leave provider credentials and merchant-wallet fields blank for the demo.
+5. Run `npm start` (an alias for `npm run dev`), then open `http://localhost:5173`.
 
-Then edit `.env` — see [Configuration](#configuration) below for what each block does.
+The API defaults to port **5000**, matching `.env.example` and the client's fallback URL. If occupied, set both `PORT=5001` and `VITE_API_URL=http://localhost:5001/api`. Keep `CLIENT_ORIGIN` aligned with Vite's actual URL; `CLIENT_ORIGINS` optionally supplies a comma-separated allow-list. Restart after changing environment variables.
 
-### Run
+The server loads `server/.env` before root `.env`; existing process variables take precedence. Prefer a single root `.env` to avoid conflicting overrides. Vite also reads the root environment directory. **Every `VITE_*` value is public in the browser bundle.** Never put private keys, tokens, or database credentials there. `.env` and `.env.*` files are ignored; `.env.example` is the tracked exception.
 
-```bash
-npm run dev
-```
+### Optional providers: what the code actually does
 
-That spins up:
-
-- API on `http://localhost:5001` (or whatever you set `PORT=` to)
-- Client on `http://localhost:5173`
-
----
-
-## Configuration
-
-The repo uses a **single root `.env`** file. The server walks up the directory tree to find it, so you do not need separate `.env` files in `client/` and `server/`.
-
-### Required
-
-| Variable | Purpose |
+| Path | Selection and fallback |
 | --- | --- |
-| `PORT` | Server port. **Use `5001`, not `5000`** — see Troubleshooting. |
-| `CLIENT_ORIGIN` | CORS allow-list (default `http://localhost:5173`) |
-| `MONGODB_URI` | Atlas connection string |
-| `JWT_SECRET` | Random ≥32-char string |
-| `JWT_EXPIRES_IN` | e.g. `7d` |
-| `VITE_API_URL` | Must match your server, e.g. `http://localhost:5001/api` |
+| Conversation | Calls Snowflake Cortex directly, regardless of `AI_PROVIDER`. Missing configuration, request failure, or unusable output produces local rule-based replies and scores. It does **not** retry Google. |
+| Reading / verbiage | `AI_PROVIDER=gemini` selects Google. Otherwise, configured Snowflake wins; Google is selected only when Snowflake configuration is absent. Missing configuration or a null provider result produces local feedback. A Snowflake failure does **not** trigger Google failover. Google network exceptions/timeouts can surface as API errors. |
+| Recorded speech to text | ElevenLabs Scribe when configured; without its key, returns a fixed, explicitly marked demo transcript. Provider errors propagate. |
+| Speech output | Deepgram first, optionally ElevenLabs TTS if Deepgram fails; the client attempts browser speech synthesis when no audio is returned. Live speech recognition separately depends on browser support. |
 
-### LLM (pick one or both)
+- **Snowflake:** `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_TOKEN`, and optional `SNOWFLAKE_MODEL` (default `openai-gpt-4.1`). The active integration uses the Cortex REST inference endpoint.
+- **Google:** `GEMMA_API_KEY` and `GEMMA_API_URL`. These are historical variable names: the example URL selects **Gemini 2.5 Flash Lite**, not Gemma. The URL determines the actual model; `GEMMA_MODEL` helps decide whether to send a Gemini thinking-budget option.
+- **Voice:** see `.env.example` for `ELEVENLABS_STT_MODEL_ID`, optional ElevenLabs TTS voice/model, and Deepgram voice overrides. Provider availability and model access depend on your account; live provider calls were not part of this cleanup's validation.
 
-| Variable | Purpose |
-| --- | --- |
-| `AI_PROVIDER` | `snowflake` (default) or `gemini` |
-| `SNOWFLAKE_ACCOUNT` | Snowflake account identifier (e.g. `ABCDEFG-XY12345`) |
-| `SNOWFLAKE_TOKEN` | Programmatic Access Token (PAT) — note: JWTs expire |
-| `SNOWFLAKE_MODEL` | Default `openai-gpt-4.1` |
-| `GEMMA_API_KEY` | Google AI key (used when Snowflake is unset or AI_PROVIDER=gemini) |
-| `GEMMA_API_URL` | Gemini/Gemma generateContent endpoint |
-| `GEMMA_MODEL` | e.g. `gemini-2.5-flash-lite` |
-| `AI_DEBUG` | `true` to log prompt/response metadata |
+## Optional hackathon category experiment
 
-### Voice
+The Solana devnet subscription-status prototype was a **last-minute addition for a hackathon category**, not a core part of Lingo. It is not required to run or evaluate the speech-practice experience. Leave merchant-wallet settings blank and use all practice modes without payment.
 
-| Variable | Purpose |
-| --- | --- |
-| `ELEVENLABS_API_KEY` | Speech-to-text |
-| `ELEVENLABS_STT_MODEL_ID` | e.g. `scribe_v1` |
-| `DEEPGRAM_API_KEY` | Text-to-speech |
-| `DEEPGRAM_TTS_*_MODEL_ID` | One Aura 2 voice ID per persona (Sana / Theo / Jax / Mira / default) |
+<details>
+<summary>Devnet experiment: setup and implementation notes</summary>
 
-### Solana subscription (optional — only needed for Pro upgrade flow)
+This is a test-token demonstration, not production billing: no mainnet payments, recurring charges, or paid-support service. Blank RPC settings use public devnet; no paid Helius account is required. If exploring it separately, use only a devnet wallet/test tokens and matching merchant, mint, and price values in server and `VITE_*` settings. The UI displays 30 days, matching the example duration.
 
-| Variable | Purpose |
-| --- | --- |
-| `VITE_HELIUS_DEVNET_RPC`, `HELIUS_DEVNET_RPC` | Helius devnet RPC URL |
-| `VITE_MERCHANT_WALLET`, `MERCHANT_WALLET` | Recipient wallet (your devnet wallet) |
-| `VITE_USDC_MINT_DEVNET`, `USDC_MINT_DEVNET` | USDC mint (`4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`) |
-| `VITE_SUBSCRIPTION_PRICE_USDC`, `SUBSCRIPTION_PRICE_USDC` | e.g. `0.1` |
-| `SUBSCRIPTION_DURATION_DAYS` | e.g. `30` |
+The client signs a transfer with an account-bound memo. The server checks devnet, transaction success, signed sender, account memo, mint, recipient, and exact amount. A unique signature index and atomic update reject reuse. The unused `/api/auth/upgrade` route was removed; a Pro status without a future expiry is inactive. Practice routes do not gate access by tier.
 
-The `VITE_*` and unprefixed pairs hold the same value — Vite only exposes `VITE_`-prefixed vars to the browser, while the server reads the unprefixed ones.
+Old transactions without the memo cannot be claimed. Historical cross-account duplicate signatures would block index creation until reviewed. No shared database was migrated. Legacy scripts under `server/scripts/` are not setup steps and do not reverify historical payments. Live wallet/on-chain validation was not performed and is not a prerequisite for the portfolio demo.
 
----
+</details>
 
-## Project layout
+## Tests and validation
 
-```
-KeanHack-SNN/
-├─ client/                  React + Vite SPA
-│  ├─ src/
-│  │  ├─ components/        Practice screens, auth, dashboard, wallet
-│  │  ├─ state/             AuthContext
-│  │  ├─ utils/             audioAnalysis, etc.
-│  │  ├─ public/            Companion sprites (fire1.png … lightning3.png)
-│  │  └─ styles.css         Tailwind + element-themed CSS variables
-│  └─ tailwind.config.js
-├─ server/                  Express API
-│  ├─ src/
-│  │  ├─ routes/            One file per resource
-│  │  ├─ services/          AI, voice, Solana
-│  │  ├─ models/            User, Activity (Mongoose)
-│  │  ├─ middleware/        requireAuth
-│  │  ├─ utils/             tokens, xp, scoreAverages
-│  │  └─ index.js
-└─ .env.example
+```sh
+npm test          # Node's built-in runner; mocked providers/RPC, no keys required
+npm run build    # Production frontend bundle; does not start or bundle the API
 ```
 
----
+Tests cover XP boundaries/awards, score averaging, provider selection and fallback behavior, subscription expiry, payment rejection, account binding, and duplicate claims. An optional integration test uses a **disposable local** MongoDB database named `lingo_test_*`:
 
-## Scripts
-
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Run server + client together (concurrently) |
-| `npm run server` | Server only, with `node --watch` |
-| `npm run client` | Client only (Vite dev) |
-| `npm run build` | Production client bundle |
-| `npm run install:all` | Install both subprojects |
-
----
-
-## Troubleshooting
-
-**`EADDRINUSE: address already in use :::5001`**
-A previous server crashed without releasing the port. Kill it and rerun:
-```bash
-lsof -ti tcp:5001 | xargs kill -9
+```powershell
+$env:TEST_MONGODB_URI='mongodb://127.0.0.1:27017/lingo_test_portfolio'
+npm test
+Remove-Item Env:TEST_MONGODB_URI
 ```
 
-**Do not use `PORT=5000` on macOS.** Control Center binds 5000 (AirPlay Receiver) and you cannot kill it. Use `5001` and set `VITE_API_URL` to match.
+Without that variable, the database integration test is skipped. It refuses remote hosts and removes only its own test users.
 
-**`AI fallback used: missing_config`**
-Either no LLM keys are set, or the dev server was started before `.env` was saved. `node --watch` only restarts on `.js` source changes, not `.env` — stop and rerun `npm run dev` after editing env vars.
+Portfolio cleanup validation: clean installs and the production build passed; 16 tests passed with isolated local MongoDB. Local browser checks covered signup, survey, logout/login, typed conversation, reading, word-choice feedback, persisted history/XP, dashboard, inactive subscription renewal access, and devnet labeling. Installation reports an existing React Native/React peer warning from the wallet dependency tree; the build reports a large JavaScript chunk and stale Browserslist data. Dependency upgrades and bundle optimization were outside this cleanup.
 
-**Snowflake auth fails after working previously**
-Snowflake PATs are JWTs and expire. Decode the `exp` claim — if it's in the past, mint a new one in Snowflake.
+## Demo limitations
 
-**Mongoose connect timeout**
-Whitelist your IP in MongoDB Atlas (Network Access → Add Current IP), or use `0.0.0.0/0` for local dev only.
+- Local fallback scores are heuristics/constants. Reading feedback without audio has no measured pace or volume; word-choice fallback always includes fixed example phrases, even when absent from the response. These are demonstrations, not validated speech assessments.
+- The AI receives transcripts (plus audio metrics for reading/verbiage), not raw audio for phonetic analysis. Avoid claims of validated pronunciation accuracy, measured confidence improvement, or a trained custom model.
+- Only conversation exposes an explicit fallback indicator in the UI. Reading/verbiage can display deterministic feedback without a separate provider badge.
+- Live model quality, actual microphone transcription/playback, and wallet signing/on-chain settlement remain unverified here. No real payments were made. Use sample content for demos; provider-enabled use transmits transcripts or recordings to the configured services.
+- Authentication and payments are hackathon prototypes. Practice endpoints do not gate access by tier, and production operational/security hardening is outside this portfolio cleanup.
 
-**Solana verification rejecting valid tx**
-Confirm the merchant wallet, mint, and price in `.env` match what the client signed. Use Solana Explorer (devnet) to inspect the transfer instruction — the server checks recipient, mint, and amount, not just signature validity.
+## Team contributions
 
----
+Built together during the 24-hour KeanUHackThis hackathon. Roles below were confirmed by Shane; they are not inferred from commit counts.
 
-## Team / credits
+| Teammate | Contribution areas |
+| --- | --- |
+| **Shane Ruggirello** | Frontend implementation, UI/UX design, application structure and user flow, and research into AI/voice providers. |
+| **Nolan Hughes** | Backend implementation and user-flow design. |
+| **Nurbu Llama** | Backend implementation and research, feature scoping, and deployment for review. |
 
-Built for KeanHack. Powered by Snowflake Cortex, Gemini, ElevenLabs, Deepgram, MongoDB Atlas, and Helius.
+This portfolio cleanup adds documentation, local demo screenshots, subscription safeguards, and automated tests after the hackathon. Those additions are not presented as work completed during the original 24 hours.

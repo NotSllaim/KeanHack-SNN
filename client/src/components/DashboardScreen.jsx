@@ -135,7 +135,7 @@ function SubscriptionDetails({ data, onUpgrade }) {
         </>
       )}
 
-      {!isPro && (
+      {!data.isActive && (
         <button
           onClick={onUpgrade}
           className="w-full rounded-md bg-meadow px-4 py-2 text-sm font-semibold text-white transition hover:bg-meadow/90"

@@ -1,6 +1,9 @@
 import { Connection, PublicKey, clusterApiUrl } from "@solana/web3.js";
 
 const USDC_DECIMALS = 6;
+// https://github.com/solana-labs/solana/blob/master/sdk/src/genesis_config.rs
+const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+const MEMO_PROGRAM = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 
 let cachedConnection = null;
 function getConnection() {
@@ -24,12 +27,14 @@ function readConfig() {
   const merchantWallet = process.env.MERCHANT_WALLET;
   const usdcMint = process.env.USDC_MINT_DEVNET;
   const priceRaw = process.env.SUBSCRIPTION_PRICE_USDC;
-  const price = Number.parseFloat(priceRaw);
+  const price = Number(priceRaw);
 
   const missing = [];
   if (!isValidPubkey(merchantWallet)) missing.push("MERCHANT_WALLET");
   if (!isValidPubkey(usdcMint)) missing.push("USDC_MINT_DEVNET");
-  if (!Number.isFinite(price) || price <= 0) missing.push("SUBSCRIPTION_PRICE_USDC");
+  if (!Number.isFinite(price) || price <= 0 || !Number.isSafeInteger(price * 10 ** USDC_DECIMALS)) {
+    missing.push("SUBSCRIPTION_PRICE_USDC");
+  }
 
   return { merchantWallet, usdcMint, price, missing };
 }
@@ -103,7 +108,7 @@ function fail(reason, ctx) {
   return { valid: false, reason };
 }
 
-export async function verifyUsdcPayment({ signature, expectedSenderWallet }) {
+export async function verifyUsdcPayment({ signature, expectedSenderWallet, expectedUserId }, connection) {
   if (!signature || typeof signature !== "string") {
     return fail("Missing or invalid signature", { signature });
   }
@@ -112,27 +117,45 @@ export async function verifyUsdcPayment({ signature, expectedSenderWallet }) {
   }
 
   const config = readConfig();
+  if (!expectedUserId || !/^[a-f0-9]{24}$/i.test(expectedUserId)) {
+    return fail("Missing or invalid account identity");
+  }
   if (config.missing.length > 0) {
     return fail(`Server missing Solana config: ${config.missing.join(", ")}`);
   }
 
   let tx;
   try {
-    tx = await getConnection().getParsedTransaction(signature, {
+    const rpc = connection || getConnection();
+    if (await rpc.getGenesisHash() !== DEVNET_GENESIS_HASH) {
+      return fail("Subscription demo only accepts Solana devnet");
+    }
+    tx = await rpc.getParsedTransaction(signature, {
       maxSupportedTransactionVersion: 0,
       commitment: "confirmed"
     });
   } catch (err) {
-    return fail(`RPC error fetching transaction: ${err?.message || "unknown"}`, {
-      signature
-    });
+    // RPC errors can contain a credential-bearing endpoint URL.
+    return fail("RPC unavailable; retry verification later");
   }
 
   if (!tx) return fail("Transaction not found on-chain", { signature });
   if (tx.meta?.err !== null && tx.meta?.err !== undefined) {
     return fail("Transaction failed on-chain", { err: tx.meta.err });
   }
-  if (!tx.blockTime) return fail("Transaction not finalized (no blockTime)");
+  if (!tx.meta || !tx.blockTime) return fail("Transaction metadata is incomplete");
+
+  const message = tx.transaction?.message;
+  const senderSigned = message?.accountKeys?.some(
+    (key) => pubkeyOf(key) === expectedSenderWallet && key.signer === true
+  );
+  const hasAccountMemo = message?.instructions?.some(
+    (ix) => pubkeyOf(ix.programId) === MEMO_PROGRAM &&
+      ix.parsed === `lingo:subscription:${expectedUserId}`
+  );
+  if (!senderSigned || !hasAccountMemo) {
+    return fail("Payment must be signed by the sender and bound to this Lingo account");
+  }
 
   const matched = findTokenTransferInstruction(tx);
   if (!matched) {
@@ -152,6 +175,9 @@ export async function verifyUsdcPayment({ signature, expectedSenderWallet }) {
   );
 
   const info = transferIx.parsed.info;
+  if (info?.authority !== expectedSenderWallet) {
+    return fail("Transfer authority does not match the signed sender wallet");
+  }
   const sourceAccount = info.source;
   const destinationAccount = info.destination;
 
@@ -277,6 +303,7 @@ export async function verifyUsdcPayment({ signature, expectedSenderWallet }) {
     valid: true,
     details: {
       sender: sourceOwner,
+      userId: expectedUserId,
       recipient: destOwner,
       amount: actualUi,
       sourceTokenAccount: sourceAccount,

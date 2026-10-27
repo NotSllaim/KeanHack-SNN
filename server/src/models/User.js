@@ -76,6 +76,13 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Global reuse protection. The atomic update in subscriptionService also prevents
+// duplicate signatures within one user's array (not enforced by a multikey index).
+userSchema.index({ "paymentHistory.signature": 1 }, {
+  unique: true,
+  partialFilterExpression: { "paymentHistory.signature": { $type: "string" } }
+});
+
 userSchema.methods.comparePassword = function comparePassword(password) {
   return bcrypt.compare(password, this.passwordHash);
 };
